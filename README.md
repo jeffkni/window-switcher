@@ -32,6 +32,16 @@ Each utility is lightning fast, compliments each other, and integrates smoothly 
   - Includes acrylic blur-behind effect
   - Skinnable by editing images in the `resources` folder
 
+### Single Switcher
+
+![Single Switcher screenshot](single-switcher-screenshot.png)
+
+The unified switcher that combines both window and app switching into one comprehensive Alt+Tab replacement.
+
+- <kbd>Alt+Tab</kbd> / <kbd>Alt+Shift+Tab</kbd> to cycle through ALL windows and applications
+- <kbd>Alt+W</kbd> to toggle between horizontal and vertical layouts (while switcher is open)
+- <kbd>Alt+Q</kbd> close the selectd window
+
 ## Installation
 
 ### Window Switcher
@@ -46,6 +56,10 @@ Each utility is lightning fast, compliments each other, and integrates smoothly 
 2. Download `app-switcher.ahk` and `GuiEnhancerKit.ahk` and the `resources` folder.
    The easiest way is to [download the entire repository as a zip file](https://github.com/1j01/window-switcher/archive/refs/heads/main.zip).
 3. Set `app-switcher.ahk` to run on startup (see below)
+
+### Single Switcher
+
+- Same steps as above.
 
 ### Running on Startup
 
