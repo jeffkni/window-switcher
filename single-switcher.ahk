@@ -504,7 +504,12 @@ UpdateFocusHighlight() {
     }
     
     ; Get the currently focused control from the GUI
-    FocusedControl := WindowSwitcher.FocusedCtrl
+    try {
+        FocusedControl := WindowSwitcher.FocusedCtrl
+    } catch {
+        ; WindowSwitcher object might be corrupted, exit gracefully
+        return
+    }
     
     if FocusedControl {
         try {
@@ -630,7 +635,12 @@ UpdateFocusHighlight() {
         Sleep(20)
         
         ; If still no focused control, focus the first one
-        if !WindowSwitcher.FocusedCtrl {
+        try {
+            FocusedCtrl := WindowSwitcher.FocusedCtrl
+        } catch {
+            FocusedCtrl := 0
+        }
+        if !FocusedCtrl {
             try {
                 ; Find and focus the first control
                 AllControls := WindowSwitcher.GetControls()
@@ -723,7 +733,11 @@ UpdateFocusHighlight() {
     ; Normally the switcher is still open at this point, but it may be closed by Escape.
     if WindowSwitcher && IsObject(WindowSwitcher) {
         ; Get the focused control and extract window HWND from its name
-        FocusedControl := WindowSwitcher.FocusedCtrl
+        try {
+            FocusedControl := WindowSwitcher.FocusedCtrl
+        } catch {
+            FocusedControl := 0
+        }
         SelectedHWND := 0
         
         if FocusedControl {
@@ -762,7 +776,12 @@ UpdateFocusHighlight() {
         AltQPressed := true
         
         ; Get the currently focused control
-        FocusedControl := WindowSwitcher.FocusedCtrl
+        try {
+            FocusedControl := WindowSwitcher.FocusedCtrl
+        } catch {
+            ; WindowSwitcher object might be corrupted, exit gracefully
+            return
+        }
         
         if FocusedControl {
             try {
@@ -834,7 +853,11 @@ UpdateFocusHighlight() {
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
         ; Get the currently focused control to preserve selection
-        FocusedControl := WindowSwitcher.FocusedCtrl
+        try {
+            FocusedControl := WindowSwitcher.FocusedCtrl
+        } catch {
+            FocusedControl := 0
+        }
         CurrentSelectedHWND := 0
         
         if FocusedControl {
@@ -896,7 +919,11 @@ CheckAltReleaseAfterQ() {
         ; Alt was released, activate the selected window
         if WindowSwitcher && IsObject(WindowSwitcher) {
             ; Get the focused control and extract window HWND from its name
-            FocusedControl := WindowSwitcher.FocusedCtrl
+            try {
+                FocusedControl := WindowSwitcher.FocusedCtrl
+            } catch {
+                FocusedControl := 0
+            }
             SelectedHWND := 0
             
             if FocusedControl {
