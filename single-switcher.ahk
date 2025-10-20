@@ -69,6 +69,7 @@ global OriginalActiveWindow := 0  ; Store the window that was active before Alt+
 global WindowToClose := 0  ; Store window handle for asynchronous closing
 global MouseHoverTimer := 0  ; Timer for mouse hover detection
 global EscapePressed := false  ; Flag to indicate Esc was pressed
+global CurrentModifier := ""  ; Track which modifier key is being used (Alt or Win)
 
 
 ;--------------------------------------------------------
@@ -85,11 +86,11 @@ DebugLog(message) {
     }
 
 InitDebugLog() {
-    try {
+        try {
         ; Clear previous log
         FileDelete("debug.log")
         DebugLog("=== SCRIPT STARTED ===")
-    } catch {
+        } catch {
         ; Ignore errors
     }
 }
@@ -518,17 +519,21 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     WindowSwitcher.OnEvent("Close", CloseHandler)
     WindowSwitcher.Opt("+AlwaysOnTop -SysMenu -Caption -Border +Owner")
     
-    ; Force center the window properly - calculate center manually
-    ; Get screen dimensions
-    MonitorGet(1, &MonLeft, &MonTop, &MonRight, &MonBottom)
-    ScreenWidth := MonRight - MonLeft
-    ScreenHeight := MonBottom - MonTop
-    ScreenCenterX := MonLeft + (ScreenWidth // 2)
-    ScreenCenterY := MonTop + (ScreenHeight // 2)
-    
-    ; Show at calculated center (offset by estimated window size)
-    CenterX := ScreenCenterX - 250  ; Estimate window width/2
-    CenterY := ScreenCenterY - 75   ; Estimate window height/2
+    ; Simple center positioning - use primary monitor
+    try {
+        MonitorGet(1, &MonLeft, &MonTop, &MonRight, &MonBottom)
+        ScreenCenterX := (MonRight - MonLeft) // 2
+        ScreenCenterY := (MonBottom - MonTop) // 2
+        CenterX := ScreenCenterX - 200  ; Estimate window width/2
+        CenterY := ScreenCenterY - 70   ; Estimate window height/2
+        DebugLog("Monitor: " MonLeft "," MonTop " to " MonRight "," MonBottom)
+        DebugLog("Calculated center: " CenterX "," CenterY)
+    } catch {
+        ; Fallback to simple center
+        CenterX := 400
+        CenterY := 300
+        DebugLog("Using fallback center: " CenterX "," CenterY)
+    }
     
     WindowSwitcher.Show("x" CenterX " y" CenterY)
     
@@ -737,13 +742,18 @@ CheckMouseHover() {
         
         DebugLog("Mouse IS over switcher window!")
         
-        ; Convert mouse position to client coordinates relative to the GUI
-        ClientPoint := Buffer(8, 0)
-        NumPut("Int", MouseX, ClientPoint, 0)
-        NumPut("Int", MouseY, ClientPoint, 4)
-        DllCall("ScreenToClient", "Ptr", WindowSwitcher.HWND, "Ptr", ClientPoint)
-        ClientMouseX := NumGet(ClientPoint, 0, "Int")
-        ClientMouseY := NumGet(ClientPoint, 4, "Int")
+        ; Get the GUI window position to convert coordinates manually
+        try {
+            WindowSwitcher.GetPos(&GuiX, &GuiY, &GuiW, &GuiH)
+            DebugLog("GUI Position: " GuiX "," GuiY " Size: " GuiW "x" GuiH)
+            ClientMouseX := MouseX - GuiX
+            ClientMouseY := MouseY - GuiY
+        } catch as e {
+            DebugLog("Error getting GUI position: " e.Message)
+            ; Fallback - assume GUI is at 0,0
+            ClientMouseX := MouseX
+            ClientMouseY := MouseY
+        }
         
         DebugLog("Client mouse: " ClientMouseX "," ClientMouseY " Controls: " ControlToHWND.Count)
         
@@ -924,8 +934,12 @@ HandleTabSwitching() {
             Send "{Tab}"
         UpdateFocusHighlight()
     
-    ; Wait for Alt key to be released, then activate selected window
-    KeyWait "LAlt"
+    ; Wait for the appropriate modifier key to be released, then activate selected window
+    if CurrentModifier == "Win" {
+        KeyWait "LWin"
+    } else {
+        KeyWait "LAlt"
+    }
     
     ; Check if Esc was pressed - if so, don't activate any window
     if EscapePressed {
@@ -980,7 +994,11 @@ HandleTabSwitching() {
     CloseWindowSwitcher()
 }
 
-!Tab:: HandleTabSwitching()
+!Tab:: {
+    global CurrentModifier
+    CurrentModifier := "Alt"
+    HandleTabSwitching()
+}
 
 ; Alt+Shift+Tab hotkey - reverse direction
 ; Unified reverse Tab switching function for both Alt+Shift+Tab and Win+Shift+Tab
@@ -1010,8 +1028,12 @@ HandleReverseTabSwitching() {
         Send "+{Tab}"
     UpdateFocusHighlight()
     
-    ; Wait for Alt key to be released, then activate selected window
-    KeyWait "LAlt"
+    ; Wait for the appropriate modifier key to be released, then activate selected window
+    if CurrentModifier == "Win" {
+        KeyWait "LWin"
+    } else {
+        KeyWait "LAlt"
+    }
     
     ; Check if Esc was pressed - if so, don't activate any window
     if EscapePressed {
@@ -1068,13 +1090,25 @@ HandleReverseTabSwitching() {
     ; Function ends here
 }
 
-!+Tab:: HandleReverseTabSwitching()
+!+Tab:: {
+    global CurrentModifier
+    CurrentModifier := "Alt"
+    HandleReverseTabSwitching()
+}
 
 ; Win+Tab hotkey - same functionality as Alt+Tab for external keyboards
-#Tab:: HandleTabSwitching()
+#Tab:: {
+    global CurrentModifier
+    CurrentModifier := "Win"
+    HandleTabSwitching()
+}
 
 ; Win+Shift+Tab hotkey - reverse direction for external keyboards
-#+Tab:: HandleReverseTabSwitching()
+#+Tab:: {
+    global CurrentModifier
+    CurrentModifier := "Win"
+    HandleReverseTabSwitching()
+}
 
 ; Alt+Esc and Win+Esc to close the Alt+Tab window without switching
 !Escape::
@@ -1091,7 +1125,7 @@ HandleReverseTabSwitching() {
         
         ; Close the switcher first
         DebugLog("Alt+Escape: Closing switcher normally")
-        CloseWindowSwitcher()
+                        CloseWindowSwitcher()
         
         ; Return to the original window that was active before Alt+Tab
         if OriginalActiveWindow {
@@ -1151,15 +1185,15 @@ HandleReverseTabSwitching() {
                     for Control, HWND in ControlToHWND {
                         if HWND == TargetHWND {
                             ControlToRemove := Control
-                            break
-                        }
+                        break
                     }
-                    
+                }
+                
                     if ControlToRemove {
                         ; Remove the control from the GUI
                         try {
                             ControlToRemove.Destroy()
-                        } catch {
+            } catch {
                             ; Control might already be destroyed
                         }
                         
@@ -1177,7 +1211,7 @@ HandleReverseTabSwitching() {
                             xPos := StartX + ((index - 1) * (IconSize + IconSpacing))
                             try {
                                 Control.Move(xPos, StartY, IconSize, IconSize)
-                            } catch {
+            } catch {
                                 ; Control might be invalid
                             }
                             index++
@@ -1189,7 +1223,7 @@ HandleReverseTabSwitching() {
                                 WindowSwitcher.FocusedCtrl := Control
                                 UpdateFocusHighlight()
                                 break
-                            } catch {
+                } catch {
                                 ; Focus update failed
                             }
                         }
