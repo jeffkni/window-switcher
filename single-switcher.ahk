@@ -72,6 +72,7 @@ global EscapePressed := false  ; Flag to indicate Esc was pressed
 global CurrentModifier := ""  ; Track which modifier key is being used (Alt or Win)
 global DateTimeTab := 0  ; Date/time tab at the top
 global DateTimeTabWindow := 0  ; Separate window for the tab that sticks up
+global DebugLoggingEnabled := false  ; Global flag to enable/disable debug logging
 
 
 ;--------------------------------------------------------
@@ -79,20 +80,34 @@ global DateTimeTabWindow := 0  ; Separate window for the tab that sticks up
 ;--------------------------------------------------------
 
 DebugLog(message) {
+    global DebugLoggingEnabled
+    
+    ; Only log if debugging is enabled
+    if !DebugLoggingEnabled {
+        return
+    }
+    
     try {
         timestamp := FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss.fff")
         FileAppend(timestamp " | " message "`n", "debug.log")
-        } catch {
+    } catch {
         ; Ignore logging errors
-        }
     }
+}
 
 InitDebugLog() {
-        try {
+    global DebugLoggingEnabled
+    
+    ; Only initialize if debugging is enabled
+    if !DebugLoggingEnabled {
+        return
+    }
+    
+    try {
         ; Clear previous log
         FileDelete("debug.log")
         DebugLog("=== SCRIPT STARTED ===")
-        } catch {
+    } catch {
         ; Ignore errors
     }
 }
