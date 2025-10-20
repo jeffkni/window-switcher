@@ -379,8 +379,8 @@ RemoveWindowFromSwitcher(TargetHWND, NewFocusIndex) {
     }
     
     ; Reposition remaining controls to remove gaps
-    IconSize := 48
-    IconSpacing := 10
+    IconSize := 64
+    IconSpacing := 12
     StartX := 10
     StartY := 10
     
@@ -477,26 +477,23 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
         ; Fall back to basic font setting
         WindowSwitcher.SetFont("s8", "Segoe UI")
     }
-    WindowSwitcher.BackColor := 0x000000
+    WindowSwitcher.BackColor := 0x1E1E1E  ; Modern dark gray instead of pure black
     
     WindowSwitcher.MarginX := 10
     WindowSwitcher.MarginY := 10
     
-    ; Layout settings
-    IconSize := 48
-    IconSpacing := 8
+    ; Layout settings - optimized for developer efficiency
+    IconSize := 64  ; Larger for instant recognition
+    IconSpacing := 12  ; Tighter spacing to minimize eye scanning
     
     ; Create selection underline element
     BorderThickness := 3
-    global UnderlineBorder := WindowSwitcher.Add("Text", "x0 y0 w10 h" BorderThickness " Background0xFF00FF", "")
+    global UnderlineBorder := WindowSwitcher.Add("Text", "x0 y0 w10 h" BorderThickness " Background0x0078D4", "")  ; Windows blue selection
     
     ; Initially hide the underline
     UnderlineBorder.Visible := false
     
-    ; Add date/time text at the top of the window, left-aligned
-    CurrentDateTime := FormatTime(A_Now, "HH:mm ddd MMM dd")
-    global DateTimeTab := WindowSwitcher.Add("Text", "x10 y5 w400 h20 Left Background0x000000 cWhite", CurrentDateTime)
-    DateTimeTab.SetFont("s9", "Segoe UI")
+    ; Date/time will be added at the bottom after title display
     
         ; Horizontal layout - icons in a row
         MaxIconsPerRow := 10  ; Adjust as needed
@@ -505,9 +502,8 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
         for index, window in Windows {
         
         ; Position calculation for horizontal layout - use absolute coordinates
-        ; Move icons down to make room for the date/time at the top
         AbsoluteX := 10 + (index - 1) * (IconSize + IconSpacing)
-        AbsoluteY := 30  ; Moved down to make room for date/time
+        AbsoluteY := 10  ; Back to original position
         
         xPos := "x" AbsoluteX
         yPos := "y" AbsoluteY
@@ -535,12 +531,24 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
         
     ; Add title display area below icons
         TitleAreaY := "y+" (IconSpacing + 10)  ; Add some extra spacing below icons
-    TitleDisplay := WindowSwitcher.Add("Text", "x10 y" (30 + IconSize + 10) " w400 h50 cWhite Background0x2D2D30", "")
-        TitleDisplay.SetFont("s10", "Segoe UI")
+    TitleDisplay := WindowSwitcher.Add("Text", "x10 y" (10 + IconSize + 10) " w400 h20 cWhite BackgroundTrans", "")
+        TitleDisplay.SetFont("s11 w400", "Segoe UI")  ; Slightly larger, normal weight
+    
+    ; Add date/time text at the bottom, below the title display
+    CurrentDateTime := FormatTime(A_Now, "HH:mm ddd MMM dd")
+    global DateTimeTab := WindowSwitcher.Add("Text", "x11 y" (10 + IconSize + 10 + 20 + 5) " w400 h20 Left BackgroundTrans cWhite", CurrentDateTime)
+    DateTimeTab.SetFont("s8 w300", "Segoe UI")  ; Smaller, lighter for secondary info
     
     WindowSwitcher.OnEvent("Escape", EscapeHandler)
     WindowSwitcher.OnEvent("Close", CloseHandler)
     WindowSwitcher.Opt("+AlwaysOnTop -SysMenu -Caption -Border +Owner")
+    
+    ; Add subtle rounded corners for modern look (Windows 11 style)
+    try {
+        DllCall("dwmapi\DwmSetWindowAttribute", "ptr", WindowSwitcher.HWND, "int", 33, "int*", 2, "int", 4)
+    } catch {
+        ; Ignore if DWM API not available
+    }
     
     ; Simple center positioning - use primary monitor
     try {
