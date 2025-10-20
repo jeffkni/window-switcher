@@ -1,6 +1,7 @@
 ; Requires AutoHotkey v2
 #Include %A_ScriptDir%\GuiEnhancerKit.ahk
 
+
 ;--------------------------------------------------------
 ; Window Switcher
 ;--------------------------------------------------------
@@ -50,130 +51,215 @@ DWMSBT_TRANSIENTWINDOW := 3
 ; Global Settings
 ;--------------------------------------------------------
 
-; Layout direction: "vertical" or "horizontal"
-; Change layout direction with alt+tab, release then 'w'
-global LayoutDirection := "horizontal"
+; Always use horizontal layout
 
 ;--------------------------------------------------------
 ; Global variables
 ;--------------------------------------------------------
 
 global WindowSwitcher := 0
-global FocusRingByHWND := Map()
-global CurrentWindowIndex := 0
 global AllSwitchableWindows := []
 global IsWindowSwitcherActive := false
-global AltQPressed := false  ; Flag to track if Alt+Q was pressed
-global TitleDisplay := 0  ; Control for displaying window title
+global AltQPressed := false
+global MouseClickHandled := false
+global TitleDisplay := 0
+global ControlToHWND := Map()
+global OriginalActiveWindow := 0  ; Store the window that was active before Alt+Tab
+global AltQWasPressed := false  ; Flag to prevent switcher closure after Alt+Q
+global WindowToClose := 0  ; Store window handle for asynchronous closing
 
+
+;--------------------------------------------------------
+; Debug logging
+;--------------------------------------------------------
+
+DebugLog(message) {
+    try {
+        timestamp := FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss.fff")
+        FileAppend(timestamp " | " message "`n", "debug.log")
+        } catch {
+        ; Ignore logging errors
+        }
+    }
+
+InitDebugLog() {
+        try {
+        ; Clear previous log
+        FileDelete("debug.log")
+        DebugLog("=== SCRIPT STARTED ===")
+        } catch {
+        ; Ignore errors
+    }
+}
 
 ;--------------------------------------------------------
 ; Utility functions
 ;--------------------------------------------------------
 
-GetWindowIconHandle(hwnd) {
-    iconHandle := 0
-    
-    ; Try different icon sources in order of preference
-    if (!iconHandle) {
+; Asynchronous window closing to prevent interference with Alt+Tab switcher
+AsyncCloseWindow(TargetHWND) {
+    global WindowToClose
+    WindowToClose := TargetHWND
+    ; Use a short timer to close the window asynchronously
+    SetTimer(DoAsyncWindowClose, 10)
+}
+
+DoAsyncWindowClose() {
+    global WindowToClose, WindowSwitcher
+    if WindowToClose {
         try {
-            iconHandle := SendMessage(WM_GETICON, ICON_BIG, 0, , hwnd)
-        } catch {
-        }
-    }
-    if (!iconHandle) {
-        try {
-            iconHandle := SendMessage(WM_GETICON, ICON_SMALL2, 0, , hwnd)
-        } catch {
-        }
-    }
-    if (!iconHandle) {
-        try {
-            iconHandle := SendMessage(WM_GETICON, ICON_SMALL, 0, , hwnd)
-        } catch {
-        }
-    }
-    if (!iconHandle) {
-        try {
-            iconHandle := GetClassLongPtrA(hwnd, GCLP_HICON)
-        } catch {
-        }
-    }
-    if (!iconHandle) {
-        try {
-            iconHandle := GetClassLongPtrA(hwnd, GCLP_HICONSM)
-        } catch {
-        }
-    }
-    
-    ; Try to get icon from executable file as last resort
-    if (!iconHandle) {
-        try {
-            ProcessPath := WinGetProcessPath(hwnd)
-            if (ProcessPath && ProcessPath != "") {
-                ; Extract the first icon from the executable
-                iconHandle := DllCall("Shell32.dll\ExtractIcon", "Ptr", A_ScriptHwnd, "Str", ProcessPath, "UInt", 0, "Ptr")
-                if (iconHandle <= 1) {  ; ExtractIcon returns 0 or 1 for failure
-                    iconHandle := 0
+            ; Debug: Check if we're accidentally closing the switcher itself
+            if WindowSwitcher && IsObject(WindowSwitcher) {
+                SwitcherHWND := WindowSwitcher.HWND
+                if WindowToClose == SwitcherHWND {
+                    DebugLog("ERROR: Trying to close switcher window itself!")
+                    WindowToClose := 0
+                    SetTimer(DoAsyncWindowClose, 0)
+                    return
                 }
             }
+            
+            DebugLog("DoAsyncWindowClose: Closing window " WindowToClose)
+            WinClose("ahk_id " WindowToClose)
         } catch {
+            ; Window might already be closed or invalid
+            DebugLog("DoAsyncWindowClose: Error closing window")
+        }
+        WindowToClose := 0
+    }
+    ; Stop the timer
+    SetTimer(DoAsyncWindowClose, 0)
+}
+
+EscapeHandler(*) {
+    global AltQWasPressed
+    DebugLog("GUI Escape Event: AltQWasPressed = " AltQWasPressed)
+    if !AltQWasPressed {
+        DebugLog("EscapeHandler: Closing switcher (AltQWasPressed = false)")
+        CloseWindowSwitcher()
+    } else {
+        DebugLog("EscapeHandler: Alt+Q was pressed, ignoring Escape event")
+    }
+}
+
+CloseHandler(*) {
+    DebugLog("GUI Close Event Triggered!")
+}
+
+CheckModifierRelease() {
+    global WindowSwitcher, IsWindowSwitcherActive, AltQWasPressed, MouseClickHandled, AllSwitchableWindows
+    
+    ; Debug: Show that timer is running
+    static DebugCount := 0
+    DebugCount++
+    if (DebugCount == 1) {
+        DebugLog("CheckModifierRelease: Timer started, monitoring keys...")
+    }
+    
+    ; Check if any modifier keys are still pressed
+    if GetKeyState("LAlt") || GetKeyState("RAlt") || GetKeyState("LWin") || GetKeyState("RWin") {
+        return  ; Still holding modifier, keep checking
+    }
+    
+    ; Modifier released - stop the timer
+    SetTimer(CheckModifierRelease, 0)
+    
+    DebugLog("CheckModifierRelease: Modifier released! AltQWasPressed = " AltQWasPressed)
+    
+    ; Check if mouse click already handled activation
+    if MouseClickHandled {
+        ; Mouse click already activated a window, don't activate again
+        DebugLog("CheckModifierRelease: Mouse click handled, not activating")
+        return
+    }
+    
+    ; Activate the selected window before cleanup
+    try {
+        FocusedCtrl := WindowSwitcher.FocusedCtrl
+        if FocusedCtrl {
+            TargetHWND := GetHWNDFromControl(FocusedCtrl)
+            
+            if (TargetHWND) {
+                DebugLog("CheckModifierRelease: Activating window " TargetHWND)
+                ; Restore if minimized
+                MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
+                if MinMaxState == -1 {
+                    WinRestore("ahk_id " TargetHWND)
+                    Sleep(100)
+                }
+                
+                WinActivate("ahk_id " TargetHWND)
+            }
+        }
+    } catch {
+        ; Fallback - activate the first window
+        if AllSwitchableWindows.Length > 1 {
+            TargetHWND := AllSwitchableWindows[2].HWND
+            DebugLog("CheckModifierRelease: Fallback activating window " TargetHWND)
+            MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
+            if MinMaxState == -1 {
+                WinRestore("ahk_id " TargetHWND)
+                Sleep(100)
+            }
+            WinActivate("ahk_id " TargetHWND)
         }
     }
     
-    return iconHandle
+    ; Clean up properly - but only if Alt+Q wasn't pressed
+    DebugLog("CheckModifierRelease: AltQWasPressed = " AltQWasPressed)
+    
+    if !AltQWasPressed {
+        DebugLog("CheckModifierRelease: Closing switcher (AltQWasPressed = false)")
+        CloseWindowSwitcher()
+        IsWindowSwitcherActive := false
+    } else {
+        ; Alt+Q was pressed - stop the timer and keep switcher open
+        DebugLog("CheckModifierRelease: Alt+Q detected - stopping timer and keeping switcher open")
+        SetTimer(CheckModifierRelease, 0)  ; Stop the timer
+        ; Don't reset flag immediately - let it persist to block Escape events
+        ; Flag will be reset when next Alt+Tab session starts
+    }
+}
+
+GetWindowIconHandle(hwnd) {
+    ; Optimized icon retrieval with early returns
+    try {
+        if (iconHandle := SendMessage(WM_GETICON, ICON_BIG, 0, , hwnd))
+            return iconHandle
+        if (iconHandle := SendMessage(WM_GETICON, ICON_SMALL2, 0, , hwnd))
+            return iconHandle
+        if (iconHandle := SendMessage(WM_GETICON, ICON_SMALL, 0, , hwnd))
+            return iconHandle
+        if (iconHandle := GetClassLongPtrA(hwnd, GCLP_HICON))
+            return iconHandle
+        if (iconHandle := GetClassLongPtrA(hwnd, GCLP_HICONSM))
+            return iconHandle
+        
+        ; Last resort: extract from executable
+        if (ProcessPath := WinGetProcessPath(hwnd)) {
+            iconHandle := DllCall("Shell32.dll\ExtractIcon", "Ptr", A_ScriptHwnd, "Str", ProcessPath, "UInt", 0, "Ptr")
+            return (iconHandle > 1) ? iconHandle : 0
+        }
+    } catch {
+    }
+    return 0
 }
 
 GetClassLongPtrA(hwnd, nIndex) {
     return DllCall("GetClassLongPtrA", "Ptr", hwnd, "int", nIndex, "Ptr")
 }
 
-Switchable(Window) {
-    ; Determine if a window should be included in the switcher
-    ; This includes ALL windows that would normally appear in Alt+Tab, including minimized ones
-    
-    ; Skip invalid windows
-    try {
-        if !WinExist("ahk_id " Window) {
-            return false
-        }
-    } catch {
-        return false
-    }
-    
-    ; Check window styles to determine if it's switchable
-    try {
-        ExStyle := WinGetExStyle(Window)
-        Style := WinGetStyle(Window)
-        
-        ; Skip tool windows (unless they have WS_EX_APPWINDOW)
-        if (ExStyle & WS_EX_TOOLWINDOW) && !(ExStyle & WS_EX_APPWINDOW) {
-            return false
-        }
-        
-        ; Skip child windows
-        if (Style & WS_CHILD) {
-            return false
-        }
-        
-        ; Skip windows without a title (unless they have WS_EX_APPWINDOW)
-        WindowTitle := WinGetTitle(Window)
-        if (WindowTitle == "" && !(ExStyle & WS_EX_APPWINDOW)) {
-            return false
-        }
-        
-        ; Include windows that are explicitly marked as app windows
-        if (ExStyle & WS_EX_APPWINDOW) {
-            return true
-        }
-        
-        ; Include visible windows (including minimized ones)
-        return true
-        
-    } catch {
-        return false
-    }
+; Optimized window filtering function
+IsValidSwitchableWindow(WindowID, WindowTitle, ProcessName) {
+    return !(WindowTitle == "" || 
+             ProcessName == "dwm.exe" || 
+             ProcessName == "winlogon.exe" || 
+             ProcessName == "csrss.exe" ||
+             WindowTitle == "Program Manager" ||
+             WindowTitle == "Task Switching" ||
+             (WindowSwitcher && IsObject(WindowSwitcher) && WindowID == WindowSwitcher.HWND))
 }
+
 
 GetWindowDisplayName(Window) {
     ; Get a display name for the window
@@ -207,6 +293,55 @@ GetWindowDisplayName(Window) {
     } catch {
         return "Unknown Window"
     }
+}
+
+; Optimized window collection and sorting function
+CollectAndSortWindows() {
+    SwitchableWindows := []
+    AllWindows := WinGetList()
+    
+    for WindowID in AllWindows {
+        try {
+            WindowTitle := WinGetTitle("ahk_id " WindowID)
+            ProcessName := WinGetProcessName("ahk_id " WindowID)
+            
+            ; Skip invalid windows using optimized filter
+            if (!IsValidSwitchableWindow(WindowID, WindowTitle, ProcessName)) {
+                continue
+            }
+            
+            ; Get window icon
+            WindowIcon := GetWindowIconHandle(WindowID)
+            
+            ; Create window object
+            SwitchableWindows.Push({
+                HWND: WindowID,
+                Title: WindowTitle,
+                ProcessName: ProcessName,
+                Icon: WindowIcon
+            })
+        } catch {
+            continue
+        }
+    }
+    
+    ; Sort windows by Z-order using insertion sort (optimized for small arrays)
+    SortedWindows := []
+    for window in SwitchableWindows {
+        SortedWindows.Push(window)
+    }
+    
+    for i in Range(2, SortedWindows.Length) {
+        current := SortedWindows[i]
+        j := i - 1
+        while j >= 1 && IsWindowOnTop(current.HWND, SortedWindows[j].HWND) {
+            SortedWindows[j + 1] := SortedWindows[j]
+            j--
+        }
+        SortedWindows[j + 1] := current
+    }
+    
+    return SortedWindows
 }
 
 SortWindowsByZOrder(Windows) {
@@ -263,8 +398,122 @@ Range(start, end) {
 ; Window Switcher UI
 ;--------------------------------------------------------
 
+RemoveWindowFromSwitcher(TargetHWND, NewFocusIndex) {
+    global WindowSwitcher, ControlToHWND, AllSwitchableWindows, TitleDisplay
+    
+    ; Find and remove the control for this HWND
+    ControlToRemove := ""
+    for Control, HWND in ControlToHWND {
+        if HWND == TargetHWND {
+            ControlToRemove := Control
+            break
+        }
+    }
+    
+    if ControlToRemove {
+        ; Remove the control from the GUI (this leaves a gap)
+        try {
+            ControlToRemove.Destroy()
+        } catch {
+            ; Control might already be destroyed
+        }
+        
+        ; Remove from our mapping
+        ControlToHWND.Delete(ControlToRemove)
+    }
+    
+    ; Get all remaining controls and reposition them to remove gaps
+    RemainingControls := []
+    for Control, HWND in ControlToHWND {
+        ; Verify this window still exists in our updated list
+        WindowExists := false
+        for window in AllSwitchableWindows {
+            if window.HWND == HWND {
+                WindowExists := true
+                break
+            }
+        }
+        if WindowExists {
+            RemainingControls.Push({Control: Control, HWND: HWND})
+        }
+    }
+    
+    ; Reposition remaining controls to remove gaps
+    IconSize := 48
+    IconSpacing := 10
+    StartX := 10
+    StartY := 10
+    
+    for index, item in RemainingControls {
+        xPos := StartX + ((index - 1) * (IconSize + IconSpacing))
+        try {
+            item.Control.Move(xPos, StartY, IconSize, IconSize)
+        } catch {
+            ; Control might be invalid
+        }
+    }
+    
+    ; Update focus to the next available control
+    if RemainingControls.Length > 0 {
+        FocusIndex := NewFocusIndex
+        if FocusIndex > RemainingControls.Length {
+            FocusIndex := RemainingControls.Length
+        }
+        if FocusIndex < 1 {
+            FocusIndex := 1
+        }
+        
+        try {
+            TargetControl := RemainingControls[FocusIndex].Control
+            WindowSwitcher.FocusedCtrl := TargetControl
+            UpdateFocusHighlight()
+        } catch {
+            ; Focus update failed - try the first available control
+            if RemainingControls.Length > 0 {
+                try {
+                    WindowSwitcher.FocusedCtrl := RemainingControls[1].Control
+                    UpdateFocusHighlight()
+                } catch {
+                    ; Complete focus failure
+                }
+            }
+        }
+    }
+    
+    ; Resize the switcher window to fit remaining controls (preserve position)
+    if RemainingControls.Length > 0 {
+        NewWidth := (RemainingControls.Length * (IconSize + IconSpacing)) + IconSpacing
+        NewHeight := IconSize + (IconSpacing * 2) + 60  ; Extra space for title
+        
+        try {
+            ; Get current position to preserve it
+            WindowSwitcher.GetPos(&CurrentX, &CurrentY, &CurrentW, &CurrentH)
+            WindowSwitcher.Move(CurrentX, CurrentY, NewWidth, NewHeight)
+        } catch {
+            ; Resize failed, try without position preservation
+            try {
+                WindowSwitcher.Move(, , NewWidth, NewHeight)
+            } catch {
+                ; Complete resize failure
+            }
+        }
+    }
+}
+
 ShowWindowSwitcher(Windows, FocusIndex := 1) {
+    global OriginalActiveWindow
+    
+    ; Capture the currently active window before opening switcher
+    try {
+        OriginalActiveWindow := WinGetID("A")
+    } catch {
+        OriginalActiveWindow := 0
+    }
+    
     CloseWindowSwitcher()  ; Close any existing switcher
+    
+    ; Small delay to ensure GUI is fully destroyed
+    Sleep(50)
     
     ; Try GuiExt first, fall back to regular Gui if not available
     try {
@@ -272,8 +521,8 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     } catch {
         global WindowSwitcher := Gui()
     }
-    global FocusRingByHWND := Map()
     global TitleDisplay := 0
+    global ControlToHWND := Map()  ; Reset the mapping
     ; Border elements will be declared when created
     
     try {
@@ -310,20 +559,19 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     LeftBorder.Visible := false
     RightBorder.Visible := false
     
-    ; Layout based on direction
-    if (LayoutDirection == "horizontal") {
         ; Horizontal layout - icons in a row
         MaxIconsPerRow := 10  ; Adjust as needed
+    
         
         for index, window in Windows {
-            ; Position calculation for horizontal layout
-            if (index == 1) {
-                xPos := "xM"
-                yPos := "yM"
-            } else {
-                xPos := "x+" IconSpacing
-                yPos := "yM"
-            }
+        
+        ; Position calculation for horizontal layout - use absolute coordinates
+        AbsoluteX := 10 + (index - 1) * (IconSize + IconSpacing)
+        AbsoluteY := 10
+        
+        xPos := "x" AbsoluteX
+        yPos := "y" AbsoluteY
+        
             
             ; Line break if too many icons
             if (index > MaxIconsPerRow) {
@@ -338,34 +586,36 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
                 }
             }
             
-            ; Create icon control
-            ControlOptions := xPos " " yPos " w" IconSize " h" IconSize " Tabstop vIconForWindowWithHWND" window.HWND
+        ; Create icon control without naming it - make sure it can receive focus and mouse events
+        ControlOptions := xPos " " yPos " w" IconSize " h" IconSize " Tabstop +0x200"  ; Add SS_NOTIFY for mouse events
+        
+        
             CreateWindowIcon(window, ControlOptions)
         }
         
-        ; Add title display area below icons in horizontal mode
+    ; Add title display area below icons
         TitleAreaY := "y+" (IconSpacing + 10)  ; Add some extra spacing below icons
-        TitleDisplay := WindowSwitcher.Add("Text", "xM " TitleAreaY " w400 h50 Center cWhite Background0x2D2D30", "")
+    TitleDisplay := WindowSwitcher.Add("Text", "xM " TitleAreaY " w400 h50 cWhite Background0x2D2D30", "")
         TitleDisplay.SetFont("s10", "Segoe UI")
-    } else {
-        ; Vertical layout - icons in a column (original)
-        for index, window in Windows {
-            ; Position calculation for vertical layout
-            if (index == 1) {
-                yPos := "yM"
-            } else {
-                yPos := "y+" IconSpacing
-            }
-            
-            ; Create icon control
-            ControlOptions := "xM " yPos " w" IconSize " h" IconSize " Tabstop vIconForWindowWithHWND" window.HWND
-            CreateWindowIcon(window, ControlOptions)
-        }
-    }
     
-    WindowSwitcher.OnEvent("Escape", CloseWindowSwitcher)
+    WindowSwitcher.OnEvent("Escape", EscapeHandler)
+    WindowSwitcher.OnEvent("Close", CloseHandler)
     WindowSwitcher.Opt("+AlwaysOnTop -SysMenu -Caption -Border +Owner")
-    WindowSwitcher.Show  ; Remove "NoActivate" so GUI gets focus!
+    
+    ; Force center the window properly - calculate center manually
+    ; Get screen dimensions
+    MonitorGet(1, &MonLeft, &MonTop, &MonRight, &MonBottom)
+    ScreenWidth := MonRight - MonLeft
+    ScreenHeight := MonBottom - MonTop
+    ScreenCenterX := MonLeft + (ScreenWidth // 2)
+    ScreenCenterY := MonTop + (ScreenHeight // 2)
+    
+    ; Show at calculated center (offset by estimated window size)
+    CenterX := ScreenCenterX - 250  ; Estimate window width/2
+    CenterY := ScreenCenterY - 75   ; Estimate window height/2
+    
+    WindowSwitcher.Show("x" CenterX " y" CenterY)
+    
     
     ; Focus the GUI and the specified control so Tab cycling works
     WinActivate(WindowSwitcher.HWND)
@@ -420,11 +670,12 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
 }
 
 CreateWindowIcon(window, ControlOptions) {
-    global WindowSwitcher, FocusRingByHWND
+    global WindowSwitcher, ControlToHWND
     
     try {
         if (window.Icon && window.Icon > 1) {
             IconControl := WindowSwitcher.Add("Pic", ControlOptions, "HICON:*" window.Icon)
+            
         } else {
             ; Create a more visible fallback for windows without icons
             ; Use the first 2 letters of the app name
@@ -465,11 +716,12 @@ CreateWindowIcon(window, ControlOptions) {
             IconControl := WindowSwitcher.Add("Text", ControlOptions " Center cWhite", FirstTwoLetters)
             IconControl.SetFont("s12 Bold", "Segoe UI")
         }
-        ; Add click and hover event handlers to the icon control
-        IconControl.OnEvent("Click", (*) => OnIconClick(window.HWND))
-        IconControl.OnEvent("MouseMove", (*) => OnIconHover(window.HWND))
+        ; Store the mapping between control object and HWND
+        ControlToHWND[IconControl] := window.HWND
         
-        FocusRingByHWND[window.HWND] := IconControl
+        ; Add click event handler to the icon control
+        IconControl.OnEvent("Click", (*) => OnIconClick(window.HWND))
+        
     } catch {
         ; Ultimate fallback - use first 2 letters of anything we can get
         try {
@@ -484,62 +736,79 @@ CreateWindowIcon(window, ControlOptions) {
         IconControl := WindowSwitcher.Add("Text", ControlOptions " Center cWhite", FallbackText)
         IconControl.SetFont("s12 Bold", "Segoe UI")
         
-        ; Add click and hover event handlers to the fallback control too
-        IconControl.OnEvent("Click", (*) => OnIconClick(window.HWND))
-        IconControl.OnEvent("MouseMove", (*) => OnIconHover(window.HWND))
+        ; Store the mapping between control object and HWND
+        ControlToHWND[IconControl] := window.HWND
         
-        FocusRingByHWND[window.HWND] := IconControl
+        ; Add click event handler to the fallback control too
+        IconControl.OnEvent("Click", (*) => OnIconClick(window.HWND))
+        
     }
 }
 
-OnIconHover(TargetHWND) {
-    ; Handle mouse hover over an icon - select it without clicking
-    global WindowSwitcher
+GetHWNDFromControl(control) {
+    ; Helper function to get HWND from a focused control
+    global ControlToHWND
+    
+    if !control {
+        return 0
+    }
     
     try {
-        ; Find the control for this window and focus it
-        ControlName := "IconForWindowWithHWND" TargetHWND
-        TargetControl := WindowSwitcher[ControlName]
-        
-        if TargetControl {
-            ; Focus the hovered control (this selects it)
-            TargetControl.Focus()
-            
-            ; Update the visual highlight
-            UpdateFocusHighlight()
-        }
+        return ControlToHWND[control]
     } catch {
-        ; If focusing fails, just ignore
+        return 0
     }
 }
+
+
+
+
+
 
 OnIconClick(TargetHWND) {
-    ; Handle mouse click on an icon - just select/focus it (don't activate window yet)
-    global WindowSwitcher
+    ; Handle mouse click on an icon - immediately activate window and close switcher
+    global WindowSwitcher, MouseClickHandled
+    
+    ; Set flag to prevent Alt release from activating a different window
+    MouseClickHandled := true
     
     try {
-        ; Find the control for this window and focus it
-        ControlName := "IconForWindowWithHWND" TargetHWND
-        TargetControl := WindowSwitcher[ControlName]
+        ; Close the switcher immediately
+        CloseWindowSwitcher()
         
-        if TargetControl {
-            ; Focus the clicked control (this selects it)
-            TargetControl.Focus()
-            
-            ; Update the visual highlight
-            UpdateFocusHighlight()
+        ; Restore window if it's minimized
+        MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
+        if MinMaxState == -1 {
+            WinRestore("ahk_id " TargetHWND)
+            Sleep(100)
         }
+        
+        ; Activate the clicked window
+        WinActivate("ahk_id " TargetHWND)
     } catch {
-        ; If focusing fails, just ignore
+        ; If activation fails, just close the switcher
+        CloseWindowSwitcher()
     }
 }
 
 CloseWindowSwitcher(*) {
-    global WindowSwitcher, IsWindowSwitcherActive
+    global WindowSwitcher, IsWindowSwitcherActive, ControlToHWND, AltQWasPressed
+    
+    ; Debug: Show who called CloseWindowSwitcher and the flag state with stack trace
+    try {
+        throw Error("Stack trace")
+    } catch as e {
+        DebugLog("CloseWindowSwitcher CALLED! AltQWasPressed = " AltQWasPressed " | Stack: " e.Stack)
+    }
+    
     IsWindowSwitcherActive := false
     if !WindowSwitcher {
         return
     }
+    
+    
+    ; Clear control mapping
+    ControlToHWND := Map()
     
     OldWindowSwitcher := WindowSwitcher
     WindowSwitcher := 0
@@ -548,7 +817,7 @@ CloseWindowSwitcher(*) {
 
 LastFocusHighlight := 0
 UpdateFocusHighlight() {
-    global TopBorder, BottomBorder, LeftBorder, RightBorder, WindowSwitcher, TitleDisplay, AllSwitchableWindows, LayoutDirection
+    global TopBorder, BottomBorder, LeftBorder, RightBorder, WindowSwitcher, TitleDisplay, AllSwitchableWindows
     
     ; Make sure WindowSwitcher is a valid GUI object
     if !WindowSwitcher || !IsObject(WindowSwitcher) || !TopBorder {
@@ -587,14 +856,13 @@ UpdateFocusHighlight() {
             RightBorder.Move(x + w, y - BorderThickness, BorderThickness, h + (2 * BorderThickness))
             RightBorder.Visible := true
             
-            ; Update title display in horizontal mode
-            if (LayoutDirection == "horizontal" && TitleDisplay && IsObject(TitleDisplay)) {
+            ; Update title display
+            if (TitleDisplay && IsObject(TitleDisplay)) {
                 try {
-                    ; Extract HWND from control name (like "IconForWindowWithHWND12345")
-                    ControlName := FocusedControl.Name
-                    if InStr(ControlName, "IconForWindowWithHWND") {
-                        SelectedHWND := Integer(StrReplace(ControlName, "IconForWindowWithHWND", ""))
-                        
+                    ; Get HWND from the focused control
+                    SelectedHWND := GetHWNDFromControl(FocusedControl)
+                    
+                    if (SelectedHWND) {
                         ; Get window title directly
                         WindowTitle := ""
                         try {
@@ -603,39 +871,21 @@ UpdateFocusHighlight() {
                             WindowTitle := "Unknown Window"
                         }
                         
-                        ; Clean up the title - very conservative approach
+                        ; Clean up the title - show only the first part when separated by " - "
                         if (WindowTitle != "") {
-                            OriginalTitle := WindowTitle  ; Keep track of original
-                            
-                            ; Only do the most basic cleanup - remove trailing " - Microsoft Edge" type patterns
-                            ; But only if there's substantial content before the separator
+                            ; Split by " - " and only show the first part if there are multiple parts
                             TitleParts := StrSplit(WindowTitle, " - ")
                             if (TitleParts.Length >= 2) {
                                 FirstPart := Trim(TitleParts[1])
-                                LastPart := Trim(TitleParts[TitleParts.Length])
-                                
-                                ; Only remove the last part if it's a known app name and the first part has content
-                                if (StrLen(FirstPart) >= 3) {
-                                    CommonApps := ["Microsoft Edge", "Google Chrome", "Mozilla Firefox", "Visual Studio Code", 
-                                                  "Microsoft Word", "Microsoft Excel", "File Explorer", "Task Manager"]
-                                    
-                                    for appName in CommonApps {
-                                        if (LastPart = appName) {
+                                ; Only use the first part if it has meaningful content
+                                if (StrLen(FirstPart) >= 1) {
                                             WindowTitle := FirstPart
-                                            break
-                                        }
-                                    }
                                 }
-                            }
-                            
-                            ; If something went wrong, use original
-                            if (StrLen(Trim(WindowTitle)) < 1) {
-                                WindowTitle := OriginalTitle
                             }
                         }
                         
-                        ; Update the title display
-                        TitleDisplay.Text := Trim(WindowTitle)
+                        ; Update the title display (with leading space for margin)
+                        TitleDisplay.Text := " " . Trim(WindowTitle)
                     }
                 } catch {
                     ; If title update fails, clear the display
@@ -660,7 +910,7 @@ UpdateFocusHighlight() {
         RightBorder.Visible := false
         
         ; Clear title display
-        if (LayoutDirection == "horizontal" && TitleDisplay && IsObject(TitleDisplay)) {
+        if (TitleDisplay && IsObject(TitleDisplay)) {
             TitleDisplay.Text := ""
         }
     }
@@ -671,182 +921,76 @@ UpdateFocusHighlight() {
 ;--------------------------------------------------------
 
 ; Alt+Tab hotkey - revert to original working pattern
-!Tab:: {
-    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed
+; Unified Tab switching function for both Alt+Tab and Win+Tab
+HandleTabSwitching() {
+    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled, AltQWasPressed
+    
+    ; Reset mouse click flag at the start
+    MouseClickHandled := false
     
     if WindowSwitcher && IsObject(WindowSwitcher) {
+        ; Switcher is already open - don't reset AltQWasPressed flag during cycling
         ; Switcher is already open, cycle through windows
         WinActivate(WindowSwitcher.HWND)
         Sleep(20)
         Send "{Tab}"
         UpdateFocusHighlight()
+        
+        ; Ensure timer is running for modifier release detection
+        DebugLog("HandleTabSwitching: Cycling - ensuring timer is running")
+        SetTimer(CheckModifierRelease, 50)
         return
     }
     
-    ; First time opening - get all switchable windows
-    SwitchableWindows := []
-    AllWindows := WinGetList()
-    
-    for WindowID in AllWindows {
-        try {
-            WindowTitle := WinGetTitle("ahk_id " WindowID)
-            ProcessName := WinGetProcessName("ahk_id " WindowID)
-            
-            ; Skip windows without titles, system windows, and our own GUI
-            if (WindowTitle == "" || 
-                ProcessName == "dwm.exe" || 
-                ProcessName == "winlogon.exe" || 
-                ProcessName == "csrss.exe" ||
-                WindowTitle == "Program Manager" ||
-                WindowTitle == "Task Switching" ||
-                (WindowSwitcher && IsObject(WindowSwitcher) && WindowID == WindowSwitcher.HWND)) {
-                continue
-            }
-            
-            ; Get window icon
-            WindowIcon := GetWindowIconHandle(WindowID)
-            
-            ; Add to switchable windows
-            SwitchableWindows.Push({HWND: WindowID, Title: WindowTitle, ProcessName: ProcessName, Icon: WindowIcon})
-        } catch {
-            continue
-        }
+    ; Creating new switcher - reset Alt+Q flag for new session
+    if AltQWasPressed {
+        DebugLog("HandleTabSwitching: Resetting AltQWasPressed flag for new switcher session")
     }
+    AltQWasPressed := false
     
-    ; Sort windows by Z-order (most recent first)
-    SortedWindows := []
-    for window in SwitchableWindows {
-        SortedWindows.Push(window)
-    }
-    
-    ; Simple insertion sort by recency
-    for i in Range(2, SortedWindows.Length) {
-        current := SortedWindows[i]
-        j := i - 1
-        while j >= 1 && IsWindowOnTop(current.HWND, SortedWindows[j].HWND) {
-            SortedWindows[j + 1] := SortedWindows[j]
-            j--
-        }
-        SortedWindows[j + 1] := current
-    }
-    
-    ; Store windows globally for Alt+Q functionality
+    ; Collect and sort all switchable windows using optimized function
+    SortedWindows := CollectAndSortWindows()
     AllSwitchableWindows := SortedWindows
-    
-    ; Show the switcher
     ShowWindowSwitcher(SortedWindows)
     
     ; Initially select the next window (index 2, since index 1 is current)
     Send "{Tab}"
     UpdateFocusHighlight()
     
-    ; Handle Alt+Q flag
-    if AltQPressed {
-        AltQPressed := false
-        SetTimer(CheckAltReleaseAfterQ, 50)
-        return
-    }
+    ; Start non-blocking timer to monitor for modifier key release
+    DebugLog("HandleTabSwitching: Starting non-blocking modifier monitor...")
+    DebugLog("HandleTabSwitching: About to start CheckModifierRelease timer")
+    SetTimer(CheckModifierRelease, 50)
+    DebugLog("HandleTabSwitching: CheckModifierRelease timer started!")
     
-    ; Wait for Alt to be released
-    if GetKeyState("LAlt") {
-        KeyWait "LAlt"
-    } else if GetKeyState("RAlt") {
-        KeyWait "RAlt"
-    }
-    
-    ; Activate the selected window
-    try {
-        FocusedCtrl := WindowSwitcher.FocusedCtrl
-        if FocusedCtrl {
-            ControlName := FocusedCtrl.Name
-            if RegExMatch(ControlName, "IconForWindowWithHWND(\d+)", &Match) {
-                TargetHWND := Integer(Match[1])
-                
-                ; Restore if minimized
-                MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
-                if MinMaxState == -1 {
-                    WinRestore("ahk_id " TargetHWND)
-                    Sleep(100)
-                }
-                
-                WinActivate("ahk_id " TargetHWND)
-            }
-        }
-    } catch {
-        ; Fallback - activate the first window
-        if AllSwitchableWindows.Length > 1 {
-            TargetHWND := AllSwitchableWindows[2].HWND
-            MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
-            if MinMaxState == -1 {
-                WinRestore("ahk_id " TargetHWND)
-                Sleep(100)
-            }
-            WinActivate("ahk_id " TargetHWND)
-        }
-    }
-    
-    ; Clean up
-    if WindowSwitcher && IsObject(WindowSwitcher) {
-        WindowSwitcher.Destroy()
-        WindowSwitcher := 0
-    }
-    IsWindowSwitcherActive := false
+    ; Function ends here - cleanup will be handled by CheckModifierRelease timer
 }
+
+!Tab:: HandleTabSwitching()
 
 ; Alt+Shift+Tab hotkey - reverse direction
-!+Tab:: {
-    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed
+; Unified reverse Tab switching function for both Alt+Shift+Tab and Win+Shift+Tab
+HandleReverseTabSwitching() {
+    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled, AltQWasPressed
+    
+    ; Reset mouse click flag at the start
+    MouseClickHandled := false
     
     if WindowSwitcher && IsObject(WindowSwitcher) {
-        ; Switcher is already open, cycle backwards
+        ; Switcher is already open - don't reset AltQWasPressed flag during cycling
+        ; Switcher is already open, cycle backwards through windows
         WinActivate(WindowSwitcher.HWND)
         Sleep(20)
-        Send "+{Tab}"
+        Send "+{Tab}"  ; Shift+Tab for reverse
         UpdateFocusHighlight()
+        
+        ; Ensure timer is running for modifier release detection
+        SetTimer(CheckModifierRelease, 50)
         return
     }
     
-    ; First time opening - get all switchable windows (same as !Tab::)
-    SwitchableWindows := []
-    AllWindows := WinGetList()
-    
-    for WindowID in AllWindows {
-        try {
-            WindowTitle := WinGetTitle("ahk_id " WindowID)
-            ProcessName := WinGetProcessName("ahk_id " WindowID)
-            
-            if (WindowTitle == "" || 
-                ProcessName == "dwm.exe" || 
-                ProcessName == "winlogon.exe" || 
-                ProcessName == "csrss.exe" ||
-                WindowTitle == "Program Manager" ||
-                WindowTitle == "Task Switching" ||
-                (WindowSwitcher && IsObject(WindowSwitcher) && WindowID == WindowSwitcher.HWND)) {
-                continue
-            }
-            
-            SwitchableWindows.Push({HWND: WindowID, Title: WindowTitle, ProcessName: ProcessName})
-        } catch {
-            continue
-        }
-    }
-    
-    ; Sort windows by Z-order
-    SortedWindows := []
-    for window in SwitchableWindows {
-        SortedWindows.Push(window)
-    }
-    
-    for i in Range(2, SortedWindows.Length) {
-        current := SortedWindows[i]
-        j := i - 1
-        while j >= 1 && IsWindowOnTop(current.HWND, SortedWindows[j].HWND) {
-            SortedWindows[j + 1] := SortedWindows[j]
-            j--
-        }
-        SortedWindows[j + 1] := current
-    }
-    
+    ; First time opening - get all switchable windows using optimized function
+    SortedWindows := CollectAndSortWindows()
     AllSwitchableWindows := SortedWindows
     ShowWindowSwitcher(SortedWindows)
     
@@ -854,147 +998,22 @@ UpdateFocusHighlight() {
     Send "+{Tab}"
     UpdateFocusHighlight()
     
-    if AltQPressed {
-        AltQPressed := false
-        SetTimer(CheckAltReleaseAfterQ, 50)
+    ; Start non-blocking timer to monitor for modifier key release
+    SetTimer(CheckModifierRelease, 50)
+    
+    ; Check if mouse click already handled activation
+    if MouseClickHandled {
+        ; Mouse click already activated a window, don't activate again
         return
-    }
-    
-    ; Wait for Alt to be released
-    if GetKeyState("LAlt") {
-        KeyWait "LAlt"
-    } else if GetKeyState("RAlt") {
-        KeyWait "RAlt"
-    }
-    
-    ; Activate the selected window (same cleanup as !Tab::)
-    try {
-        FocusedCtrl := WindowSwitcher.FocusedCtrl
-        if FocusedCtrl {
-            ControlName := FocusedCtrl.Name
-            if RegExMatch(ControlName, "IconForWindowWithHWND(\d+)", &Match) {
-                TargetHWND := Integer(Match[1])
-                
-                MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
-                if MinMaxState == -1 {
-                    WinRestore("ahk_id " TargetHWND)
-                    Sleep(100)
-                }
-                
-                WinActivate("ahk_id " TargetHWND)
-            }
-        }
-    } catch {
-        if AllSwitchableWindows.Length > 1 {
-            TargetHWND := AllSwitchableWindows[2].HWND
-            MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
-            if MinMaxState == -1 {
-                WinRestore("ahk_id " TargetHWND)
-                Sleep(100)
-            }
-            WinActivate("ahk_id " TargetHWND)
-        }
-    }
-    
-    if WindowSwitcher && IsObject(WindowSwitcher) {
-        WindowSwitcher.Destroy()
-        WindowSwitcher := 0
-    }
-    IsWindowSwitcherActive := false
-}
-
-; Win+Tab hotkey - same functionality as Alt+Tab for external keyboards
-#Tab:: {
-    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed
-    
-    if WindowSwitcher && IsObject(WindowSwitcher) {
-        ; Switcher is already open, cycle through windows
-        WinActivate(WindowSwitcher.HWND)
-        Sleep(20)
-        Send "{Tab}"
-        UpdateFocusHighlight()
-        return
-    }
-    
-    ; First time opening - get all switchable windows
-    SwitchableWindows := []
-    AllWindows := WinGetList()
-    
-    for WindowID in AllWindows {
-        try {
-            WindowTitle := WinGetTitle("ahk_id " WindowID)
-            ProcessName := WinGetProcessName("ahk_id " WindowID)
-            
-            ; Skip windows without titles, system windows, and our own GUI
-            if (WindowTitle == "" || 
-                ProcessName == "dwm.exe" || 
-                ProcessName == "winlogon.exe" || 
-                ProcessName == "csrss.exe" ||
-                WindowTitle == "Program Manager" ||
-                WindowTitle == "Task Switching" ||
-                (WindowSwitcher && IsObject(WindowSwitcher) && WindowID == WindowSwitcher.HWND)) {
-                continue
-            }
-            
-            ; Get window icon
-            WindowIcon := GetWindowIconHandle(WindowID)
-            
-            ; Add to switchable windows
-            SwitchableWindows.Push({HWND: WindowID, Title: WindowTitle, ProcessName: ProcessName, Icon: WindowIcon})
-        } catch {
-            continue
-        }
-    }
-    
-    ; Sort windows by Z-order (most recent first)
-    SortedWindows := []
-    for window in SwitchableWindows {
-        SortedWindows.Push(window)
-    }
-    
-    ; Simple insertion sort by recency
-    for i in Range(2, SortedWindows.Length) {
-        current := SortedWindows[i]
-        j := i - 1
-        while j >= 1 && IsWindowOnTop(current.HWND, SortedWindows[j].HWND) {
-            SortedWindows[j + 1] := SortedWindows[j]
-            j--
-        }
-        SortedWindows[j + 1] := current
-    }
-    
-    ; Store windows globally for Alt+Q functionality
-    AllSwitchableWindows := SortedWindows
-    
-    ; Show the switcher
-    ShowWindowSwitcher(SortedWindows)
-    
-    ; Initially select the next window (index 2, since index 1 is current)
-    Send "{Tab}"
-    UpdateFocusHighlight()
-    
-    ; Handle Alt+Q flag
-    if AltQPressed {
-        AltQPressed := false
-        SetTimer(CheckWinReleaseAfterQ, 50)
-        return
-    }
-    
-    ; Wait for Win to be released
-    if GetKeyState("LWin") {
-        KeyWait "LWin"
-    } else if GetKeyState("RWin") {
-        KeyWait "RWin"
     }
     
     ; Activate the selected window
     try {
         FocusedCtrl := WindowSwitcher.FocusedCtrl
         if FocusedCtrl {
-            ControlName := FocusedCtrl.Name
-            if RegExMatch(ControlName, "IconForWindowWithHWND(\d+)", &Match) {
-                TargetHWND := Integer(Match[1])
-                
+            TargetHWND := GetHWNDFromControl(FocusedCtrl)
+            
+            if (TargetHWND) {
                 ; Restore if minimized
                 MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
                 if MinMaxState == -1 {
@@ -1004,9 +1023,9 @@ UpdateFocusHighlight() {
                 
                 WinActivate("ahk_id " TargetHWND)
             }
-        }
-    } catch {
-        ; Fallback - activate the first window
+                }
+            } catch {
+        ; Fallback - activate the second window
         if AllSwitchableWindows.Length > 1 {
             TargetHWND := AllSwitchableWindows[2].HWND
             MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
@@ -1018,163 +1037,80 @@ UpdateFocusHighlight() {
         }
     }
     
-    ; Clean up
-    if WindowSwitcher && IsObject(WindowSwitcher) {
-        WindowSwitcher.Destroy()
-        WindowSwitcher := 0
-    }
-    IsWindowSwitcherActive := false
+    ; Function ends here - cleanup will be handled by CheckModifierRelease timer
 }
 
+!+Tab:: HandleReverseTabSwitching()
+
+; Win+Tab hotkey - same functionality as Alt+Tab for external keyboards
+#Tab:: HandleTabSwitching()
+
 ; Win+Shift+Tab hotkey - reverse direction for external keyboards
-#+Tab:: {
-    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed
+#+Tab:: HandleReverseTabSwitching()
+
+; Alt+Esc and Win+Esc to close the Alt+Tab window without switching
+!Escape::
+#Escape:: {
+    global WindowSwitcher, OriginalActiveWindow
     
+    ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
-        ; Switcher is already open, cycle backwards
-        WinActivate(WindowSwitcher.HWND)
-        Sleep(20)
-        Send "+{Tab}"
-        UpdateFocusHighlight()
-        return
-    }
-    
-    ; First time opening - get all switchable windows (same as #Tab::)
-    SwitchableWindows := []
-    AllWindows := WinGetList()
-    
-    for WindowID in AllWindows {
-        try {
-            WindowTitle := WinGetTitle("ahk_id " WindowID)
-            ProcessName := WinGetProcessName("ahk_id " WindowID)
-            
-            if (WindowTitle == "" || 
-                ProcessName == "dwm.exe" || 
-                ProcessName == "winlogon.exe" || 
-                ProcessName == "csrss.exe" ||
-                WindowTitle == "Program Manager" ||
-                WindowTitle == "Task Switching" ||
-                (WindowSwitcher && IsObject(WindowSwitcher) && WindowID == WindowSwitcher.HWND)) {
-                continue
-            }
-            
-            SwitchableWindows.Push({HWND: WindowID, Title: WindowTitle, ProcessName: ProcessName})
-        } catch {
-            continue
-        }
-    }
-    
-    ; Sort windows by Z-order
-    SortedWindows := []
-    for window in SwitchableWindows {
-        SortedWindows.Push(window)
-    }
-    
-    for i in Range(2, SortedWindows.Length) {
-        current := SortedWindows[i]
-        j := i - 1
-        while j >= 1 && IsWindowOnTop(current.HWND, SortedWindows[j].HWND) {
-            SortedWindows[j + 1] := SortedWindows[j]
-            j--
-        }
-        SortedWindows[j + 1] := current
-    }
-    
-    AllSwitchableWindows := SortedWindows
-    ShowWindowSwitcher(SortedWindows)
-    
-    ; Start with reverse direction
-    Send "+{Tab}"
-    UpdateFocusHighlight()
-    
-    if AltQPressed {
-        AltQPressed := false
-        SetTimer(CheckWinReleaseAfterQ, 50)
-        return
-    }
-    
-    ; Wait for Win to be released
-    if GetKeyState("LWin") {
-        KeyWait "LWin"
-    } else if GetKeyState("RWin") {
-        KeyWait "RWin"
-    }
-    
-    ; Activate the selected window (same cleanup as #Tab::)
-    try {
-        FocusedCtrl := WindowSwitcher.FocusedCtrl
-        if FocusedCtrl {
-            ControlName := FocusedCtrl.Name
-            if RegExMatch(ControlName, "IconForWindowWithHWND(\d+)", &Match) {
-                TargetHWND := Integer(Match[1])
-                
-                MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
+        ; Close the switcher first
+        CloseWindowSwitcher()
+        
+        ; Return to the original window that was active before Alt+Tab
+        if OriginalActiveWindow {
+            try {
+                ; Restore if minimized
+                MinMaxState := WinGetMinMax("ahk_id " OriginalActiveWindow)
                 if MinMaxState == -1 {
-                    WinRestore("ahk_id " TargetHWND)
+                    WinRestore("ahk_id " OriginalActiveWindow)
                     Sleep(100)
                 }
-                
-                WinActivate("ahk_id " TargetHWND)
+                WinActivate("ahk_id " OriginalActiveWindow)
+            } catch {
+                ; Original window might not exist anymore, do nothing
             }
         }
-    } catch {
-        if AllSwitchableWindows.Length > 1 {
-            TargetHWND := AllSwitchableWindows[2].HWND
-            MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
-            if MinMaxState == -1 {
-                WinRestore("ahk_id " TargetHWND)
-                Sleep(100)
-            }
-            WinActivate("ahk_id " TargetHWND)
-        }
     }
-    
-    if WindowSwitcher && IsObject(WindowSwitcher) {
-        WindowSwitcher.Destroy()
-        WindowSwitcher := 0
-    }
-    IsWindowSwitcherActive := false
 }
 
 ; Alt+Q and Win+Q to close/kill the currently selected window while switcher is open
 !q::
 #q:: {
-    global WindowSwitcher, AllSwitchableWindows, AltQPressed
+    global WindowSwitcher, AllSwitchableWindows, ControlToHWND, TitleDisplay, AltQWasPressed
     
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
         ; Set flag to prevent main Alt+Tab logic from closing switcher
-        AltQPressed := true
+        AltQWasPressed := true
+        DebugLog("Alt+Q: Set AltQWasPressed = true")
         
-        ; Get the currently focused control
+        ; Small delay to ensure flag is set before Alt release is detected
+        Sleep(50)
+        
+        ; Get the currently focused control and close its window
         try {
             FocusedControl := WindowSwitcher.FocusedCtrl
-        } catch {
-            ; WindowSwitcher object might be corrupted, exit gracefully
-            return
-        }
-        
+            DebugLog("Alt+Q: FocusedControl = " (FocusedControl ? "Found" : "None"))
         if FocusedControl {
-            try {
-                ; Extract HWND from control name
-                ControlName := FocusedControl.Name
-                if InStr(ControlName, "IconForWindowWithHWND") {
-                    TargetHWND := Integer(StrReplace(ControlName, "IconForWindowWithHWND", ""))
-                    
-                    ; Find the index of the current window in our list
-                    CurrentIndex := 0
-                    for index, window in AllSwitchableWindows {
-                        if window.HWND == TargetHWND {
-                            CurrentIndex := index
-                            break
-                        }
-                    }
-                    
-                    ; Close the window
-                    WinClose(TargetHWND)
-                    
-                    ; Small delay to let the window close
-                    Sleep(50)
+                TargetHWND := GetHWNDFromControl(FocusedControl)
+                DebugLog("Alt+Q: TargetHWND = " TargetHWND)
+                
+                ; Debug: Check if we're about to close the switcher itself
+                SwitcherHWND := WindowSwitcher.HWND
+                DebugLog("Alt+Q: SwitcherHWND = " SwitcherHWND)
+                
+                if (TargetHWND == SwitcherHWND) {
+                    DebugLog("Alt+Q: ERROR! TargetHWND matches SwitcherHWND - would close switcher!")
+                    return
+                }
+                
+                if (TargetHWND) {
+                    ; Close the window asynchronously to prevent switcher interference
+                    DebugLog("Alt+Q: About to close window " TargetHWND)
+                    AsyncCloseWindow(TargetHWND)
+                    Sleep(100)  ; Give a bit more time for async close
                     
                     ; Remove the closed window from our list
                     UpdatedWindows := []
@@ -1183,8 +1119,6 @@ UpdateFocusHighlight() {
                             UpdatedWindows.Push(window)
                         }
                     }
-                    
-                    ; Update the global list
                     AllSwitchableWindows := UpdatedWindows
                     
                     ; If no windows left, close the switcher
@@ -1193,188 +1127,106 @@ UpdateFocusHighlight() {
                         return
                     }
                     
-                    ; Calculate which window should be selected next
-                    NewIndex := CurrentIndex
-                    if NewIndex > AllSwitchableWindows.Length {
-                        NewIndex := AllSwitchableWindows.Length
+                    ; Find and remove the control for this HWND
+                    ControlToRemove := ""
+                    for Control, HWND in ControlToHWND {
+                        if HWND == TargetHWND {
+                            ControlToRemove := Control
+                            break
+                        }
                     }
                     
-                    ; Rebuild the switcher with the remaining windows
-                    ShowWindowSwitcher(AllSwitchableWindows, NewIndex)
-                    
-                    ; Ensure the switcher is active
-                    WinActivate(WindowSwitcher.HWND)
-                    Sleep(20)
-                }
+                    if ControlToRemove {
+                        ; Remove the control from the GUI
+                        try {
+                            ControlToRemove.Destroy()
             } catch {
-                ; Error closing window - could show a message or just ignore
+                            ; Control might already be destroyed
+                        }
+                        
+                        ; Remove from our mapping
+                        ControlToHWND.Delete(ControlToRemove)
+                    }
+                    
+                    ; Get all remaining controls and reposition them
+                    RemainingControls := []
+                    for Control, HWND in ControlToHWND {
+                        ; Verify this window still exists in our updated list
+                        WindowExists := false
+                        for window in AllSwitchableWindows {
+                            if window.HWND == HWND {
+                                WindowExists := true
+                                break
+                            }
+                        }
+                        if WindowExists {
+                            RemainingControls.Push({Control: Control, HWND: HWND})
+                        }
+                    }
+                    
+                    ; Reposition remaining controls to remove gaps
+                    IconSize := 48
+                    IconSpacing := 10
+                    StartX := 10
+                    StartY := 10
+                    
+                    for index, item in RemainingControls {
+                        xPos := StartX + ((index - 1) * (IconSize + IconSpacing))
+                        try {
+                            item.Control.Move(xPos, StartY, IconSize, IconSize)
+                        } catch {
+                            ; Control might be invalid
+                        }
+                    }
+                    
+                    ; Update focus to the next available control
+                    if RemainingControls.Length > 0 {
+                        FocusIndex := 1  ; Default to first remaining control
+                        if FocusIndex <= RemainingControls.Length {
+                            try {
+                                TargetControl := RemainingControls[FocusIndex].Control
+                                WindowSwitcher.FocusedCtrl := TargetControl
+                                UpdateFocusHighlight()
+            } catch {
+                                ; Focus update failed
+                            }
+                        }
+                    }
+                    
+                    ; Resize the switcher window to fit remaining controls (preserve position)
+                    if RemainingControls.Length > 0 {
+                        NewWidth := (RemainingControls.Length * (IconSize + IconSpacing)) + IconSpacing
+                        NewHeight := IconSize + (IconSpacing * 2) + 60  ; Extra space for title
+                        
+                        try {
+                            ; Get current position to preserve it
+                            WindowSwitcher.GetPos(&CurrentX, &CurrentY, &CurrentW, &CurrentH)
+                            WindowSwitcher.Move(CurrentX, CurrentY, NewWidth, NewHeight)
+            } catch {
+                            ; Resize failed, try without position preservation
+                            try {
+                                WindowSwitcher.Move(, , NewWidth, NewHeight)
+                } catch {
+                                ; Complete resize failure
+                            }
+                        }
+                    }
+                }
             }
+        } catch {
+            ; Error closing window - just ignore
         }
+        
+        DebugLog("Alt+Q: Handler completed successfully!")
         return
     }
     
     ; If switcher is not active, send normal Q
     Send "q"
+    return
 }
 
-; Alt+W and Win+W to toggle layout direction while switcher is open
-!w::
-#w:: {
-    global WindowSwitcher, AllSwitchableWindows, LayoutDirection
-    
-    ; Only work if the switcher is currently active
-    if WindowSwitcher && IsObject(WindowSwitcher) {
-        ; Get the currently focused control to preserve selection
-        try {
-            FocusedControl := WindowSwitcher.FocusedCtrl
-        } catch {
-            FocusedControl := 0
-        }
-        CurrentSelectedHWND := 0
-        
-        if FocusedControl {
-            try {
-                ; Extract HWND from control name
-                ControlName := FocusedControl.Name
-                if InStr(ControlName, "IconForWindowWithHWND") {
-                    CurrentSelectedHWND := Integer(StrReplace(ControlName, "IconForWindowWithHWND", ""))
-                }
-            } catch {
-            }
-        }
-        
-        ; Toggle layout direction
-        if (LayoutDirection == "vertical") {
-            LayoutDirection := "horizontal"
-        } else {
-            LayoutDirection := "vertical"
-        }
-        
-        ; Refresh the switcher with new layout
-        ShowWindowSwitcher(AllSwitchableWindows)
-        
-        ; Ensure the switcher is active and focused
-        WinActivate(WindowSwitcher.HWND)
-        Sleep(50)
-        
-        ; Try to restore focus to the same window that was selected
-        if CurrentSelectedHWND != 0 {
-            try {
-                ; Find the index of the window we want to focus
-                TargetIndex := 1
-                for index, window in AllSwitchableWindows {
-                    if window.HWND == CurrentSelectedHWND {
-                        TargetIndex := index
-                        break
-                    }
-                }
-                
-                ; Focus the control at the target index by calling ShowWindowSwitcher again with the correct index
-                ShowWindowSwitcher(AllSwitchableWindows, TargetIndex)
-                WinActivate(WindowSwitcher.HWND)
-                Sleep(20)
-            } catch {
-                ; If we can't restore the specific selection, just use the default (first item)
-            }
-        }
-        return
-    }
-    
-    ; If switcher is not active, send normal W
-    Send "w"
-}
 
-CheckAltReleaseAfterQ() {
-    global WindowSwitcher
-    
-    ; Check if Alt is still pressed
-    keyReleased := !GetKeyState("LAlt") && !GetKeyState("RAlt")
-    
-    if keyReleased {
-        ; Alt was released, activate the selected window
-        if WindowSwitcher && IsObject(WindowSwitcher) {
-            ; Get the focused control and extract window HWND from its name
-            try {
-                FocusedControl := WindowSwitcher.FocusedCtrl
-            } catch {
-                FocusedControl := 0
-            }
-            SelectedHWND := 0
-            
-            if FocusedControl {
-                try {
-                    ; Extract HWND from control name (like "IconForWindowWithHWND12345")
-                    ControlName := FocusedControl.Name
-                    if InStr(ControlName, "IconForWindowWithHWND") {
-                        SelectedHWND := Integer(StrReplace(ControlName, "IconForWindowWithHWND", ""))
-                    }
-                } catch {
-                }
-            }
-            
-            CloseWindowSwitcher()
-            
-            if SelectedHWND {
-                try {
-                    ; Restore window if it's minimized
-                    if WinGetMinMax(SelectedHWND) == -1 {
-                        WinRestore(SelectedHWND)
-                    }
-                    WinActivate(SelectedHWND)
-                } catch {
-                }
-            }
-        }
-        ; Stop the timer
-        SetTimer(CheckAltReleaseAfterQ, 0)
-    }
-}
-
-CheckWinReleaseAfterQ() {
-    global WindowSwitcher
-    
-    ; Check if Win is still pressed
-    keyReleased := !GetKeyState("LWin") && !GetKeyState("RWin")
-    
-    if keyReleased {
-        ; Win was released, activate the selected window
-        if WindowSwitcher && IsObject(WindowSwitcher) {
-            ; Get the focused control and extract window HWND from its name
-            try {
-                FocusedControl := WindowSwitcher.FocusedCtrl
-            } catch {
-                FocusedControl := 0
-            }
-            SelectedHWND := 0
-            
-            if FocusedControl {
-                try {
-                    ; Extract HWND from control name (like "IconForWindowWithHWND12345")
-                    ControlName := FocusedControl.Name
-                    if InStr(ControlName, "IconForWindowWithHWND") {
-                        SelectedHWND := Integer(StrReplace(ControlName, "IconForWindowWithHWND", ""))
-                    }
-                } catch {
-                }
-            }
-            
-            CloseWindowSwitcher()
-            
-            if SelectedHWND {
-                try {
-                    ; Restore window if it's minimized
-                    if WinGetMinMax(SelectedHWND) == -1 {
-                        WinRestore(SelectedHWND)
-                    }
-                    WinActivate(SelectedHWND)
-                } catch {
-                }
-            }
-        }
-        ; Stop the timer
-        SetTimer(CheckWinReleaseAfterQ, 0)
-    }
-}
 
 
 ;--------------------------------------------------------
@@ -1451,6 +1303,19 @@ MakeSplash(Title, Text, Duration := 0) {
     }
     return SplashGui
 }
+
+;--------------------------------------------------------
+; Caps Lock to Ctrl Remap Configuration
+;--------------------------------------------------------
+
+; Remap Caps Lock to act as Ctrl
+CapsLock::Ctrl
+
+; Ensure Caps Lock state is off at startup (so it acts as modifier, not toggle)
+SetCapsLockState("Off")
+
+; Initialize debug logging
+InitDebugLog()
 
 ;--------------------------------------------------------
 ; Status Display

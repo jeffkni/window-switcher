@@ -1,0 +1,78 @@
+2025-10-20 11:52:12.fff | === SCRIPT STARTED ===
+2025-10-20 11:52:12.fff | CloseWindowSwitcher CALLED! AltQWasPressed = 0 | Stack: C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (799) : [CloseWindowSwitcher] Throw Error("Stack trace")
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (513) : [ShowWindowSwitcher] CloseWindowSwitcher()
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (954) : [HandleTabSwitching] ShowWindowSwitcher(SortedWindows)
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (969) : [<Hotkey>] HandleTabSwitching()
+> !Tab
+
+2025-10-20 11:52:13.fff | HandleTabSwitching: Starting non-blocking modifier monitor...
+2025-10-20 11:52:13.fff | HandleTabSwitching: About to start CheckModifierRelease timer
+2025-10-20 11:52:13.fff | HandleTabSwitching: CheckModifierRelease timer started!
+2025-10-20 11:52:13.fff | CheckModifierRelease: Timer started, monitoring keys...
+2025-10-20 11:52:13.fff | HandleTabSwitching: Cycling - ensuring timer is running
+2025-10-20 11:52:13.fff | HandleTabSwitching: Cycling - ensuring timer is running
+2025-10-20 11:52:14.fff | HandleTabSwitching: Cycling - ensuring timer is running
+2025-10-20 11:52:14.fff | HandleTabSwitching: Cycling - ensuring timer is running
+2025-10-20 11:52:14.fff | HandleTabSwitching: Cycling - ensuring timer is running
+2025-10-20 11:52:14.fff | HandleTabSwitching: Cycling - ensuring timer is running
+2025-10-20 11:52:14.fff | HandleTabSwitching: Cycling - ensuring timer is running
+2025-10-20 11:52:15.fff | CheckModifierRelease: Modifier released! AltQWasPressed = 0
+2025-10-20 11:52:15.fff | CheckModifierRelease: Activating window 5905298
+2025-10-20 11:52:15.fff | CheckModifierRelease: AltQWasPressed = 0
+2025-10-20 11:52:15.fff | CheckModifierRelease: Closing switcher (AltQWasPressed = false)
+2025-10-20 11:52:15.fff | CloseWindowSwitcher CALLED! AltQWasPressed = 0 | Stack: C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (799) : [CloseWindowSwitcher] Throw Error("Stack trace")
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (213) : [CheckModifierRelease] CloseWindowSwitcher()
+> Timer
+
+2025-10-20 11:52:16.fff | CloseWindowSwitcher CALLED! AltQWasPressed = 0 | Stack: C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (799) : [CloseWindowSwitcher] Throw Error("Stack trace")
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (513) : [ShowWindowSwitcher] CloseWindowSwitcher()
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (954) : [HandleTabSwitching] ShowWindowSwitcher(SortedWindows)
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (969) : [<Hotkey>] HandleTabSwitching()
+> !Tab
+
+2025-10-20 11:52:16.fff | HandleTabSwitching: Cycling - ensuring timer is running
+2025-10-20 11:52:16.fff | HandleTabSwitching: Starting non-blocking modifier monitor...
+2025-10-20 11:52:16.fff | HandleTabSwitching: About to start CheckModifierRelease timer
+2025-10-20 11:52:16.fff | HandleTabSwitching: CheckModifierRelease timer started!
+2025-10-20 11:52:16.fff | CheckModifierRelease: Modifier released! AltQWasPressed = 0
+2025-10-20 11:52:16.fff | CheckModifierRelease: Activating window 5052972
+2025-10-20 11:52:17.fff | CheckModifierRelease: AltQWasPressed = 0
+2025-10-20 11:52:17.fff | CheckModifierRelease: Closing switcher (AltQWasPressed = false)
+2025-10-20 11:52:17.fff | CloseWindowSwitcher CALLED! AltQWasPressed = 0 | Stack: C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (799) : [CloseWindowSwitcher] Throw Error("Stack trace")
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (213) : [CheckModifierRelease] CloseWindowSwitcher()
+> Timer
+
+2025-10-20 11:52:18.fff | CloseWindowSwitcher CALLED! AltQWasPressed = 0 | Stack: C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (799) : [CloseWindowSwitcher] Throw Error("Stack trace")
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (513) : [ShowWindowSwitcher] CloseWindowSwitcher()
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (954) : [HandleTabSwitching] ShowWindowSwitcher(SortedWindows)
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (969) : [<Hotkey>] HandleTabSwitching()
+> !Tab
+
+2025-10-20 11:52:19.fff | HandleTabSwitching: Starting non-blocking modifier monitor...
+2025-10-20 11:52:19.fff | HandleTabSwitching: About to start CheckModifierRelease timer
+2025-10-20 11:52:19.fff | HandleTabSwitching: CheckModifierRelease timer started!
+2025-10-20 11:52:19.fff | CheckModifierRelease: Modifier released! AltQWasPressed = 0
+2025-10-20 11:52:19.fff | CheckModifierRelease: Activating window 5905298
+2025-10-20 11:52:19.fff | CheckModifierRelease: AltQWasPressed = 0
+2025-10-20 11:52:19.fff | CheckModifierRelease: Closing switcher (AltQWasPressed = false)
+2025-10-20 11:52:19.fff | CloseWindowSwitcher CALLED! AltQWasPressed = 0 | Stack: C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (799) : [CloseWindowSwitcher] Throw Error("Stack trace")
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (213) : [CheckModifierRelease] CloseWindowSwitcher()
+> Timer
+
+2025-10-20 11:52:21.fff | CloseWindowSwitcher CALLED! AltQWasPressed = 0 | Stack: C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (799) : [CloseWindowSwitcher] Throw Error("Stack trace")
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (513) : [ShowWindowSwitcher] CloseWindowSwitcher()
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (954) : [HandleTabSwitching] ShowWindowSwitcher(SortedWindows)
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (969) : [<Hotkey>] HandleTabSwitching()
+> !Tab
+
+2025-10-20 11:52:21.fff | HandleTabSwitching: Starting non-blocking modifier monitor...
+2025-10-20 11:52:21.fff | HandleTabSwitching: About to start CheckModifierRelease timer
+2025-10-20 11:52:21.fff | HandleTabSwitching: CheckModifierRelease timer started!
+2025-10-20 11:52:22.fff | CheckModifierRelease: Modifier released! AltQWasPressed = 0
+2025-10-20 11:52:22.fff | CheckModifierRelease: Activating window 5905298
+2025-10-20 11:52:22.fff | CheckModifierRelease: AltQWasPressed = 0
+2025-10-20 11:52:22.fff | CheckModifierRelease: Closing switcher (AltQWasPressed = false)
+2025-10-20 11:52:22.fff | CloseWindowSwitcher CALLED! AltQWasPressed = 0 | Stack: C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (799) : [CloseWindowSwitcher] Throw Error("Stack trace")
+C:\Users\JeffKnight\OneDrive - VALSTRO\window-switcher\single-switcher.ahk (213) : [CheckModifierRelease] CloseWindowSwitcher()
+> Timer
+
