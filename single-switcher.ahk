@@ -531,12 +531,12 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
         
     ; Add title display area below icons
         TitleAreaY := "y+" (IconSpacing + 10)  ; Add some extra spacing below icons
-    TitleDisplay := WindowSwitcher.Add("Text", "x10 y" (10 + IconSize + 10) " w400 h20 cWhite BackgroundTrans", "")
+    TitleDisplay := WindowSwitcher.Add("Text", "x10 y" (10 + IconSize + 8) " w400 h20 cWhite BackgroundTrans", "")
         TitleDisplay.SetFont("s11 w400", "Segoe UI")  ; Slightly larger, normal weight
     
     ; Add date/time text at the bottom, below the title display
     CurrentDateTime := FormatTime(A_Now, "HH:mm ddd MMM dd")
-    global DateTimeTab := WindowSwitcher.Add("Text", "x11 y" (10 + IconSize + 10 + 20 + 5) " w400 h20 Left BackgroundTrans cWhite", CurrentDateTime)
+    global DateTimeTab := WindowSwitcher.Add("Text", "x11 y" (10 + IconSize + 8 + 20 + 5) " w400 h20 Left BackgroundTrans cWhite", CurrentDateTime)
     DateTimeTab.SetFont("s8 w300", "Segoe UI")  ; Smaller, lighter for secondary info
     
     WindowSwitcher.OnEvent("Escape", EscapeHandler)
@@ -550,22 +550,21 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
         ; Ignore if DWM API not available
     }
     
-    ; Simple center positioning - use primary monitor
+    ; Position window 1/3 from left side of screen
     try {
         MonitorGet(1, &MonLeft, &MonTop, &MonRight, &MonBottom)
         ScreenWidth := MonRight - MonLeft
         ScreenHeight := MonBottom - MonTop
-        ScreenCenterX := MonLeft + (ScreenWidth // 2)
         ScreenCenterY := MonTop + (ScreenHeight // 2)
-        CenterX := ScreenCenterX - 200  ; Estimate window width/2
+        CenterX := MonLeft + (ScreenWidth // 3)  ; Start 1/3 from left side
         CenterY := ScreenCenterY - 85   ; Estimate window height/2 + extra for tab
         DebugLog("Monitor: " MonLeft "," MonTop " to " MonRight "," MonBottom)
-        DebugLog("Screen center: " ScreenCenterX "," ScreenCenterY " GUI: " CenterX "," CenterY)
+        DebugLog("Screen 1/3 position: " CenterX "," CenterY)
     } catch {
-        ; Fallback to simple center
-        CenterX := 960
+        ; Fallback to 1/3 position on standard 1920px screen
+        CenterX := 640  ; 1920 / 3 = 640
         CenterY := 525  ; Adjusted for tab
-        DebugLog("Using fallback center: " CenterX "," CenterY)
+        DebugLog("Using fallback 1/3 position: " CenterX "," CenterY)
     }
     
     WindowSwitcher.Show("x" CenterX " y" CenterY)
