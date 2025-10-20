@@ -1,7 +1,6 @@
 ; Requires AutoHotkey v2
 ; GuiEnhancerKit removed - using native AutoHotkey Gui with manual styling
 
-
 ;--------------------------------------------------------
 ; Window Switcher
 ;--------------------------------------------------------
@@ -27,8 +26,6 @@ WS_CHILD := 0x40000000
 WS_EX_APPWINDOW := 0x00040000
 WS_EX_TOOLWINDOW := 0x00000080
 
-SS_WORDELLIPSIS := 0x0000C000
-SS_NOPREFIX := 0x00000080
 
 GCW_ATOM := -32
 GCL_CBCLSEXTRA := -20
@@ -42,10 +39,6 @@ GCLP_MENUNAME := -8
 GCL_STYLE := -26
 GCLP_WNDPROC := -24
 
-; DWM constants for blur effect
-DWMWA_USE_HOSTBACKDROPBRUSH := 16
-DWMWA_SYSTEMBACKDROP_TYPE := 38
-DWMSBT_TRANSIENTWINDOW := 3
 
 ;--------------------------------------------------------
 ; Global Settings
@@ -284,28 +277,6 @@ CollectAndSortWindows() {
     return SortedWindows
 }
 
-SortWindowsByZOrder(Windows) {
-    ; Sort windows by Z-order (most recently used first)
-    ; This is similar to how Windows' native Alt+Tab works
-    
-    if (Windows.Length <= 1) {
-        return Windows
-    }
-    
-    ; Simple approach: use insertion sort with Z-order comparison
-    for i in Range(2, Windows.Length) {
-        j := i
-        while (j > 1 && IsWindowOnTop(Windows[j].HWND, Windows[j-1].HWND)) {
-            ; Swap windows
-            temp := Windows[j]
-            Windows[j] := Windows[j-1]
-            Windows[j-1] := temp
-            j--
-        }
-    }
-    
-    return Windows
-}
 
 IsWindowOnTop(Window1, Window2) {
     ; Check if Window1 is on top of Window2 in Z-order
@@ -1151,21 +1122,6 @@ HandleReverseTabSwitching() {
 
 GroupIDCounter := 0
 
-SortArray(Array, ComparisonFunction) {
-    ; Insertion sort
-    i := 1
-    while (i < Array.Length) {
-        j := i
-        while (j > 0 && ComparisonFunction(Array[j], Array[j + 1]) > 0) {
-            Tmp := Array[j]
-            Array[j] := Array[j + 1]
-            Array[j + 1] := Tmp
-            j--
-        }
-        i++
-    }
-    return Array
-}
 
 FileGetVersionInfo_AW(PEFile := "", Fields := ["FileDescription"]) {
     ; Written by SKAN, updated for AHK v2
@@ -1198,32 +1154,10 @@ FileGetVersionInfo_AW(PEFile := "", Fields := ["FileDescription"]) {
     return PropertiesMap
 }
 
-;--------------------------------------------------------
-; AUTO RELOAD THIS SCRIPT
-;--------------------------------------------------------
-~^s:: {
-    if WinActive(A_ScriptName) {
-        MakeSplash("AHK Auto-Reload", "`n  Reloading " A_ScriptName "  `n", 500)
-        Reload
-    }
-}
-
-MakeSplash(Title, Text, Duration := 0) {
-    SplashGui := Gui(, Title)
-    SplashGui.Opt("+AlwaysOnTop +Disabled -SysMenu +Owner")
-    SplashGui.Add("Text", , Text)
-    SplashGui.Show("NoActivate")
-    if Duration {
-        Sleep(Duration)
-        SplashGui.Destroy()
-    }
-    return SplashGui
-}
 
 ;--------------------------------------------------------
 ; Caps Lock to Ctrl Remap Configuration
 ;--------------------------------------------------------
-
 ; Remap Caps Lock to act as Ctrl
 CapsLock::Ctrl
 
@@ -1232,8 +1166,3 @@ SetCapsLockState("Off")
 
 ; Initialize debug logging
 InitDebugLog()
-
-;--------------------------------------------------------
-; Status Display
-;--------------------------------------------------------
-
