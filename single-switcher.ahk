@@ -70,6 +70,8 @@ global WindowToClose := 0  ; Store window handle for asynchronous closing
 global MouseHoverTimer := 0  ; Timer for mouse hover detection
 global EscapePressed := false  ; Flag to indicate Esc was pressed
 global CurrentModifier := ""  ; Track which modifier key is being used (Alt or Win)
+global DateTimeTab := 0  ; Date/time tab at the top
+global DateTimeTabWindow := 0  ; Separate window for the tab that sticks up
 
 
 ;--------------------------------------------------------
@@ -476,6 +478,11 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     ; Initially hide the underline
     UnderlineBorder.Visible := false
     
+    ; Add date/time text at the top of the window, left-aligned
+    CurrentDateTime := FormatTime(A_Now, "HH:mm ddd MMM dd")
+    global DateTimeTab := WindowSwitcher.Add("Text", "x10 y5 w400 h20 Left Background0x000000 cWhite", CurrentDateTime)
+    DateTimeTab.SetFont("s9", "Segoe UI")
+    
         ; Horizontal layout - icons in a row
         MaxIconsPerRow := 10  ; Adjust as needed
     
@@ -483,8 +490,9 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
         for index, window in Windows {
         
         ; Position calculation for horizontal layout - use absolute coordinates
+        ; Move icons down to make room for the date/time at the top
         AbsoluteX := 10 + (index - 1) * (IconSize + IconSpacing)
-        AbsoluteY := 10
+        AbsoluteY := 30  ; Moved down to make room for date/time
         
         xPos := "x" AbsoluteX
         yPos := "y" AbsoluteY
@@ -512,7 +520,7 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
         
     ; Add title display area below icons
         TitleAreaY := "y+" (IconSpacing + 10)  ; Add some extra spacing below icons
-    TitleDisplay := WindowSwitcher.Add("Text", "xM " TitleAreaY " w400 h50 cWhite Background0x2D2D30", "")
+    TitleDisplay := WindowSwitcher.Add("Text", "x10 y" (30 + IconSize + 10) " w400 h50 cWhite Background0x2D2D30", "")
         TitleDisplay.SetFont("s10", "Segoe UI")
     
     WindowSwitcher.OnEvent("Escape", EscapeHandler)
@@ -522,23 +530,27 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     ; Simple center positioning - use primary monitor
     try {
         MonitorGet(1, &MonLeft, &MonTop, &MonRight, &MonBottom)
-        ScreenCenterX := (MonRight - MonLeft) // 2
-        ScreenCenterY := (MonBottom - MonTop) // 2
+        ScreenWidth := MonRight - MonLeft
+        ScreenHeight := MonBottom - MonTop
+        ScreenCenterX := MonLeft + (ScreenWidth // 2)
+        ScreenCenterY := MonTop + (ScreenHeight // 2)
         CenterX := ScreenCenterX - 200  ; Estimate window width/2
-        CenterY := ScreenCenterY - 70   ; Estimate window height/2
+        CenterY := ScreenCenterY - 85   ; Estimate window height/2 + extra for tab
         DebugLog("Monitor: " MonLeft "," MonTop " to " MonRight "," MonBottom)
-        DebugLog("Calculated center: " CenterX "," CenterY)
+        DebugLog("Screen center: " ScreenCenterX "," ScreenCenterY " GUI: " CenterX "," CenterY)
     } catch {
         ; Fallback to simple center
-        CenterX := 400
-        CenterY := 300
+        CenterX := 960
+        CenterY := 525  ; Adjusted for tab
         DebugLog("Using fallback center: " CenterX "," CenterY)
     }
     
     WindowSwitcher.Show("x" CenterX " y" CenterY)
     
-    ; Start mouse hover detection timer
-    MouseHoverTimer := SetTimer(CheckMouseHover, 100)
+    ; Date/time is now part of the main window (no separate tab needed)
+    
+    ; Mouse hover detection disabled due to coordinate issues
+    ; MouseHoverTimer := SetTimer(CheckMouseHover, 100)
     
     ; Focus the GUI and the specified control so Tab cycling works
     WinActivate(WindowSwitcher.HWND)
@@ -715,85 +727,15 @@ OnIconClick(TargetHWND) {
     }
 }
 
-CheckMouseHover() {
-    global WindowSwitcher, ControlToHWND, MouseHoverTimer
-    
-    ; Only check if switcher is active
-    if !WindowSwitcher || !IsObject(WindowSwitcher) {
-        if MouseHoverTimer {
-            SetTimer(MouseHoverTimer, 0)
-            MouseHoverTimer := 0
-        }
-        return
-    }
-    
-    try {
-        ; Get mouse position
-        MouseGetPos(&MouseX, &MouseY, &WinUnderMouse)
-        
-        ; Debug: Log mouse position and window
-        DebugLog("Mouse: " MouseX "," MouseY " WinUnder: " WinUnderMouse " Switcher: " WindowSwitcher.HWND)
-        
-        ; Check if mouse is over the switcher window
-        if WinUnderMouse != WindowSwitcher.HWND {
-            DebugLog("Mouse not over switcher window")
-            return
-        }
-        
-        DebugLog("Mouse IS over switcher window!")
-        
-        ; Get the GUI window position to convert coordinates manually
-        try {
-            WindowSwitcher.GetPos(&GuiX, &GuiY, &GuiW, &GuiH)
-            DebugLog("GUI Position: " GuiX "," GuiY " Size: " GuiW "x" GuiH)
-            ClientMouseX := MouseX - GuiX
-            ClientMouseY := MouseY - GuiY
-        } catch as e {
-            DebugLog("Error getting GUI position: " e.Message)
-            ; Fallback - assume GUI is at 0,0
-            ClientMouseX := MouseX
-            ClientMouseY := MouseY
-        }
-        
-        DebugLog("Client mouse: " ClientMouseX "," ClientMouseY " Controls: " ControlToHWND.Count)
-        
-        ; Check each control to see if mouse is over it
-        ControlIndex := 1
-        for Control, HWND in ControlToHWND {
-            try {
-                Control.GetPos(&CtrlX, &CtrlY, &CtrlW, &CtrlH)
-                DebugLog("Ctrl" ControlIndex ": " CtrlX "," CtrlY " " CtrlW "x" CtrlH)
-                
-                ; Check if mouse is within this control's bounds
-                if (ClientMouseX >= CtrlX && ClientMouseX <= CtrlX + CtrlW && 
-                    ClientMouseY >= CtrlY && ClientMouseY <= CtrlY + CtrlH) {
-                    
-                    DebugLog("MOUSE OVER CONTROL " ControlIndex "!")
-                    
-                    ; Mouse is over this control - select it if not already selected
-                    if WindowSwitcher.FocusedCtrl != Control {
-                        WindowSwitcher.FocusedCtrl := Control
-                        UpdateFocusHighlight()
-                        DebugLog("Mouse hover: Selected control " ControlIndex)
-                    }
-                    return
-                }
-                ControlIndex++
-            } catch {
-                ; Skip this control if there's an error
-                DebugLog("Error checking control " ControlIndex)
-                ControlIndex++
-                continue
-            }
-        }
-        DebugLog("Mouse not over any control")
-    } catch as e {
-        DebugLog("CheckMouseHover error: " e.Message)
-    }
-}
+; Mouse hover detection disabled due to coordinate system issues
+; CheckMouseHover() {
+;     ; Function disabled
+; }
+
+; CreateDateTimeTab function removed - date/time is now part of the main window
 
 CloseWindowSwitcher(*) {
-    global WindowSwitcher, IsWindowSwitcherActive, ControlToHWND, MouseHoverTimer
+    global WindowSwitcher, IsWindowSwitcherActive, ControlToHWND, MouseHoverTimer, DateTimeTabWindow
     
     DebugLog("CloseWindowSwitcher: Starting cleanup")
     IsWindowSwitcherActive := false
@@ -803,6 +745,8 @@ CloseWindowSwitcher(*) {
         SetTimer(MouseHoverTimer, 0)
         MouseHoverTimer := 0
     }
+    
+    ; Date/time is now part of the main window (no separate cleanup needed)
     
     if !WindowSwitcher {
         return
@@ -1147,94 +1091,38 @@ HandleReverseTabSwitching() {
 ; Alt+Q and Win+Q to close/kill the currently selected window while switcher is open
 !q::
 #q:: {
-    global WindowSwitcher, AllSwitchableWindows, ControlToHWND, TitleDisplay
+    global WindowSwitcher, AllSwitchableWindows, ControlToHWND, CurrentModifier
     
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
-        DebugLog("Alt+Q: Starting simple window close and re-list")
+        DebugLog("Alt+Q: Close window and refresh switcher")
         
         ; Get the currently focused control and close its window
         try {
             FocusedControl := WindowSwitcher.FocusedCtrl
-            DebugLog("Alt+Q: FocusedControl = " (FocusedControl ? "Found" : "None"))
-        if FocusedControl {
+            if FocusedControl {
                 TargetHWND := GetHWNDFromControl(FocusedControl)
-                DebugLog("Alt+Q: TargetHWND = " TargetHWND)
-                
-                ; Debug: Check if we're about to close the switcher itself
-                SwitcherHWND := WindowSwitcher.HWND
-                DebugLog("Alt+Q: SwitcherHWND = " SwitcherHWND)
-                
-                if (TargetHWND == SwitcherHWND) {
-                    DebugLog("Alt+Q: ERROR! TargetHWND matches SwitcherHWND - would close switcher!")
-                    return
-                }
                 
                 if (TargetHWND) {
                     DebugLog("Alt+Q: Closing window " TargetHWND)
                     
-                    ; Close the window directly
+                    ; Close the window
                     WinClose("ahk_id " TargetHWND)
-                    Sleep(100)  ; Brief pause for window to close
+                    Sleep(150)  ; Wait for window to close
                     
-                    ; Simple approach: just remove the icon and shift remaining ones
-                    DebugLog("Alt+Q: Simple icon removal and shift")
+                    ; Close the current switcher
+                    CloseWindowSwitcher()
                     
-                    ; Find and remove the control for the closed window
-                    ControlToRemove := ""
-                    for Control, HWND in ControlToHWND {
-                        if HWND == TargetHWND {
-                            ControlToRemove := Control
-                        break
-                    }
-                }
-                
-                    if ControlToRemove {
-                        ; Remove the control from the GUI
-                        try {
-                            ControlToRemove.Destroy()
-            } catch {
-                            ; Control might already be destroyed
-                        }
-                        
-                        ; Remove from our mapping
-                        ControlToHWND.Delete(ControlToRemove)
-                        
-                        ; Shift remaining controls left to fill the gap
-                        IconSize := 48
-                        IconSpacing := 10
-                        StartX := 10
-                        StartY := 10
-                        
-                        index := 1
-                        for Control, HWND in ControlToHWND {
-                            xPos := StartX + ((index - 1) * (IconSize + IconSpacing))
-                            try {
-                                Control.Move(xPos, StartY, IconSize, IconSize)
-            } catch {
-                                ; Control might be invalid
-                            }
-                            index++
-                        }
-                        
-                        ; Auto-select the first remaining control
-                        for Control, HWND in ControlToHWND {
-                            try {
-                                WindowSwitcher.FocusedCtrl := Control
-                                UpdateFocusHighlight()
-                                break
-                } catch {
-                                ; Focus update failed
-                            }
-                        }
-                    }
+                    ; Brief pause then reopen the switcher with updated window list
+                    Sleep(50)
+                    
+                    ; Reopen the switcher (same as Alt+Tab)
+                    HandleTabSwitching()
                 }
             }
         } catch {
             DebugLog("Alt+Q: Error during window close")
         }
-        
-        DebugLog("Alt+Q: Simple handler completed!")
         
         return
     }
