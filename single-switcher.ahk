@@ -83,11 +83,11 @@ DebugLog(message) {
     }
 
 InitDebugLog() {
-        try {
+    try {
         ; Clear previous log
         FileDelete("debug.log")
         DebugLog("=== SCRIPT STARTED ===")
-        } catch {
+    } catch {
         ; Ignore errors
     }
 }
@@ -868,6 +868,13 @@ HandleTabSwitching() {
     ; Wait for Alt key to be released, then activate selected window
     KeyWait "LAlt"
     
+    ; Check if mouse click already handled activation
+    if MouseClickHandled {
+        ; Mouse click already activated a window, don't activate again
+        CloseWindowSwitcher()
+        return
+    }
+    
     ; Activate the selected window
         try {
             FocusedCtrl := WindowSwitcher.FocusedCtrl
@@ -936,10 +943,13 @@ HandleReverseTabSwitching() {
         Send "+{Tab}"
     UpdateFocusHighlight()
     
+    ; Wait for Alt key to be released, then activate selected window
+    KeyWait "LAlt"
     
     ; Check if mouse click already handled activation
     if MouseClickHandled {
         ; Mouse click already activated a window, don't activate again
+        CloseWindowSwitcher()
         return
     }
     
@@ -977,6 +987,9 @@ HandleReverseTabSwitching() {
             }
         }
     }
+    
+    ; Close the switcher
+    CloseWindowSwitcher()
     
     ; Function ends here
 }
