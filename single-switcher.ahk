@@ -67,6 +67,8 @@ global ControlToHWND := Map()
 global OriginalActiveWindow := 0  ; Store the window that was active before Alt+Tab
 
 global WindowToClose := 0  ; Store window handle for asynchronous closing
+global MouseHoverTimer := 0  ; Timer for mouse hover detection
+global EscapePressed := false  ; Flag to indicate Esc was pressed
 
 
 ;--------------------------------------------------------
@@ -466,18 +468,12 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     IconSize := 48
     IconSpacing := 8
     
-    ; Create selection border elements (4 thin rectangles that form an outline)
-    BorderThickness := 2
-    global TopBorder := WindowSwitcher.Add("Text", "x0 y0 w10 h" BorderThickness " Background0xFF00FF", "")
-    global BottomBorder := WindowSwitcher.Add("Text", "x0 y0 w10 h" BorderThickness " Background0xFF00FF", "")
-    global LeftBorder := WindowSwitcher.Add("Text", "x0 y0 w" BorderThickness " h10 Background0xFF00FF", "")
-    global RightBorder := WindowSwitcher.Add("Text", "x0 y0 w" BorderThickness " h10 Background0xFF00FF", "")
+    ; Create selection underline element
+    BorderThickness := 3
+    global UnderlineBorder := WindowSwitcher.Add("Text", "x0 y0 w10 h" BorderThickness " Background0xFF00FF", "")
     
-    ; Initially hide all border elements
-    TopBorder.Visible := false
-    BottomBorder.Visible := false
-    LeftBorder.Visible := false
-    RightBorder.Visible := false
+    ; Initially hide the underline
+    UnderlineBorder.Visible := false
     
         ; Horizontal layout - icons in a row
         MaxIconsPerRow := 10  ; Adjust as needed
@@ -536,6 +532,8 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     
     WindowSwitcher.Show("x" CenterX " y" CenterY)
     
+    ; Start mouse hover detection timer
+    MouseHoverTimer := SetTimer(CheckMouseHover, 100)
     
     ; Focus the GUI and the specified control so Tab cycling works
     WinActivate(WindowSwitcher.HWND)
@@ -685,6 +683,7 @@ GetHWNDFromControl(control) {
 
 
 
+
 OnIconClick(TargetHWND) {
     ; Handle mouse click on an icon - immediately activate window and close switcher
     global WindowSwitcher, MouseClickHandled
@@ -711,11 +710,89 @@ OnIconClick(TargetHWND) {
     }
 }
 
+CheckMouseHover() {
+    global WindowSwitcher, ControlToHWND, MouseHoverTimer
+    
+    ; Only check if switcher is active
+    if !WindowSwitcher || !IsObject(WindowSwitcher) {
+        if MouseHoverTimer {
+            SetTimer(MouseHoverTimer, 0)
+            MouseHoverTimer := 0
+        }
+        return
+    }
+    
+    try {
+        ; Get mouse position
+        MouseGetPos(&MouseX, &MouseY, &WinUnderMouse)
+        
+        ; Debug: Log mouse position and window
+        DebugLog("Mouse: " MouseX "," MouseY " WinUnder: " WinUnderMouse " Switcher: " WindowSwitcher.HWND)
+        
+        ; Check if mouse is over the switcher window
+        if WinUnderMouse != WindowSwitcher.HWND {
+            DebugLog("Mouse not over switcher window")
+            return
+        }
+        
+        DebugLog("Mouse IS over switcher window!")
+        
+        ; Convert mouse position to client coordinates relative to the GUI
+        ClientPoint := Buffer(8, 0)
+        NumPut("Int", MouseX, ClientPoint, 0)
+        NumPut("Int", MouseY, ClientPoint, 4)
+        DllCall("ScreenToClient", "Ptr", WindowSwitcher.HWND, "Ptr", ClientPoint)
+        ClientMouseX := NumGet(ClientPoint, 0, "Int")
+        ClientMouseY := NumGet(ClientPoint, 4, "Int")
+        
+        DebugLog("Client mouse: " ClientMouseX "," ClientMouseY " Controls: " ControlToHWND.Count)
+        
+        ; Check each control to see if mouse is over it
+        ControlIndex := 1
+        for Control, HWND in ControlToHWND {
+            try {
+                Control.GetPos(&CtrlX, &CtrlY, &CtrlW, &CtrlH)
+                DebugLog("Ctrl" ControlIndex ": " CtrlX "," CtrlY " " CtrlW "x" CtrlH)
+                
+                ; Check if mouse is within this control's bounds
+                if (ClientMouseX >= CtrlX && ClientMouseX <= CtrlX + CtrlW && 
+                    ClientMouseY >= CtrlY && ClientMouseY <= CtrlY + CtrlH) {
+                    
+                    DebugLog("MOUSE OVER CONTROL " ControlIndex "!")
+                    
+                    ; Mouse is over this control - select it if not already selected
+                    if WindowSwitcher.FocusedCtrl != Control {
+                        WindowSwitcher.FocusedCtrl := Control
+                        UpdateFocusHighlight()
+                        DebugLog("Mouse hover: Selected control " ControlIndex)
+                    }
+                    return
+                }
+                ControlIndex++
+            } catch {
+                ; Skip this control if there's an error
+                DebugLog("Error checking control " ControlIndex)
+                ControlIndex++
+                continue
+            }
+        }
+        DebugLog("Mouse not over any control")
+    } catch as e {
+        DebugLog("CheckMouseHover error: " e.Message)
+    }
+}
+
 CloseWindowSwitcher(*) {
-    global WindowSwitcher, IsWindowSwitcherActive, ControlToHWND
+    global WindowSwitcher, IsWindowSwitcherActive, ControlToHWND, MouseHoverTimer
     
     DebugLog("CloseWindowSwitcher: Starting cleanup")
     IsWindowSwitcherActive := false
+    
+    ; Stop mouse hover timer
+    if MouseHoverTimer {
+        SetTimer(MouseHoverTimer, 0)
+        MouseHoverTimer := 0
+    }
     
     if !WindowSwitcher {
         return
@@ -732,10 +809,10 @@ CloseWindowSwitcher(*) {
 
 LastFocusHighlight := 0
 UpdateFocusHighlight() {
-    global TopBorder, BottomBorder, LeftBorder, RightBorder, WindowSwitcher, TitleDisplay, AllSwitchableWindows
+    global UnderlineBorder, WindowSwitcher, TitleDisplay, AllSwitchableWindows
     
     ; Make sure WindowSwitcher is a valid GUI object
-    if !WindowSwitcher || !IsObject(WindowSwitcher) || !TopBorder {
+    if !WindowSwitcher || !IsObject(WindowSwitcher) || !UnderlineBorder {
         return
     }
     
@@ -752,24 +829,11 @@ UpdateFocusHighlight() {
             ; Get the position of the focused control
             FocusedControl.GetPos(&x, &y, &w, &h)
             
-            BorderThickness := 2
+            BorderThickness := 3
             
-            ; Position the 4 border elements to form an outline around the control
-            ; Top border
-            TopBorder.Move(x - BorderThickness, y - BorderThickness, w + (2 * BorderThickness), BorderThickness)
-            TopBorder.Visible := true
-            
-            ; Bottom border  
-            BottomBorder.Move(x - BorderThickness, y + h, w + (2 * BorderThickness), BorderThickness)
-            BottomBorder.Visible := true
-            
-            ; Left border
-            LeftBorder.Move(x - BorderThickness, y - BorderThickness, BorderThickness, h + (2 * BorderThickness))
-            LeftBorder.Visible := true
-            
-            ; Right border
-            RightBorder.Move(x + w, y - BorderThickness, BorderThickness, h + (2 * BorderThickness))
-            RightBorder.Visible := true
+            ; Position the underline below the control
+            UnderlineBorder.Move(x, y + h + 2, w, BorderThickness)
+            UnderlineBorder.Visible := true
             
             ; Update title display
             if (TitleDisplay && IsObject(TitleDisplay)) {
@@ -811,18 +875,12 @@ UpdateFocusHighlight() {
             }
             
         } catch {
-            ; If positioning fails, hide all borders
-            TopBorder.Visible := false
-            BottomBorder.Visible := false
-            LeftBorder.Visible := false
-            RightBorder.Visible := false
+            ; If positioning fails, hide the underline
+            UnderlineBorder.Visible := false
         }
     } else {
-        ; No focused control, hide all borders and clear title
-        TopBorder.Visible := false
-        BottomBorder.Visible := false
-        LeftBorder.Visible := false
-        RightBorder.Visible := false
+        ; No focused control, hide underline and clear title
+        UnderlineBorder.Visible := false
         
         ; Clear title display
         if (TitleDisplay && IsObject(TitleDisplay)) {
@@ -838,10 +896,11 @@ UpdateFocusHighlight() {
 ; Alt+Tab hotkey - revert to original working pattern
 ; Unified Tab switching function for both Alt+Tab and Win+Tab
 HandleTabSwitching() {
-    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled
+    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled, EscapePressed
     
-    ; Reset mouse click flag at the start
+    ; Reset flags at the start
     MouseClickHandled := false
+    EscapePressed := false
     
     if WindowSwitcher && IsObject(WindowSwitcher) {
         ; Switcher is already open, cycle through windows
@@ -867,6 +926,13 @@ HandleTabSwitching() {
     
     ; Wait for Alt key to be released, then activate selected window
     KeyWait "LAlt"
+    
+    ; Check if Esc was pressed - if so, don't activate any window
+    if EscapePressed {
+        ; Esc was pressed, just close switcher without activating
+        CloseWindowSwitcher()
+        return
+    }
     
     ; Check if mouse click already handled activation
     if MouseClickHandled {
@@ -919,10 +985,11 @@ HandleTabSwitching() {
 ; Alt+Shift+Tab hotkey - reverse direction
 ; Unified reverse Tab switching function for both Alt+Shift+Tab and Win+Shift+Tab
 HandleReverseTabSwitching() {
-    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled
+    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled, EscapePressed
     
-    ; Reset mouse click flag at the start
+    ; Reset flags at the start
     MouseClickHandled := false
+    EscapePressed := false
     
     if WindowSwitcher && IsObject(WindowSwitcher) {
         ; Switcher is already open, cycle backwards through windows
@@ -945,6 +1012,13 @@ HandleReverseTabSwitching() {
     
     ; Wait for Alt key to be released, then activate selected window
     KeyWait "LAlt"
+    
+    ; Check if Esc was pressed - if so, don't activate any window
+    if EscapePressed {
+        ; Esc was pressed, just close switcher without activating
+        CloseWindowSwitcher()
+        return
+    }
     
     ; Check if mouse click already handled activation
     if MouseClickHandled {
@@ -1005,13 +1079,15 @@ HandleReverseTabSwitching() {
 ; Alt+Esc and Win+Esc to close the Alt+Tab window without switching
 !Escape::
 #Escape:: {
-    global WindowSwitcher, OriginalActiveWindow
+    global WindowSwitcher, OriginalActiveWindow, EscapePressed
     
     DebugLog("=== ALT+ESCAPE HOTKEY TRIGGERED! ===")
     DebugLog("Alt+Escape: WindowSwitcher exists = " (WindowSwitcher ? "true" : "false"))
     
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
+        ; Set flag to prevent window activation after Alt release
+        EscapePressed := true
         
         ; Close the switcher first
         DebugLog("Alt+Escape: Closing switcher normally")
