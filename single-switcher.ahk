@@ -1,5 +1,5 @@
 ; Requires AutoHotkey v2
-#Include %A_ScriptDir%\GuiEnhancerKit.ahk
+; GuiEnhancerKit removed - using native AutoHotkey Gui with manual styling
 
 
 ;--------------------------------------------------------
@@ -455,27 +455,25 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     ; Small delay to ensure GUI is fully destroyed
     Sleep(50)
     
-    ; Try GuiExt first, fall back to regular Gui if not available
-    try {
-        global WindowSwitcher := GuiExt()
-    } catch {
-        global WindowSwitcher := Gui()
-    }
+    ; Create standard AutoHotkey GUI
+    global WindowSwitcher := Gui()
     global TitleDisplay := 0
     global ControlToHWND := Map()  ; Reset the mapping
     ; Border elements will be declared when created
     
+    ; Set GUI font and apply dark title bar manually
+    WindowSwitcher.SetFont("cWhite s8", "Segoe UI")
+    
+    ; Apply dark title bar using native Windows API
     try {
-        WindowSwitcher.SetFont("cWhite s8", "Segoe UI")
-        if (HasMethod(WindowSwitcher, "SetDarkTitle")) {
-            WindowSwitcher.SetDarkTitle()
-        }
-        if (HasMethod(WindowSwitcher, "SetDarkMenu")) {
-            WindowSwitcher.SetDarkMenu()
+        ; Dark title bar for Windows 10 build 17763+ and Windows 11
+        if (VerCompare(A_OSVersion, "10.0.18985") >= 0) {
+            DllCall("dwmapi\DwmSetWindowAttribute", "ptr", WindowSwitcher.HWND, "int", 20, "int*", 1, "int", 4)
+        } else if (VerCompare(A_OSVersion, "10.0.17763") >= 0) {
+            DllCall("dwmapi\DwmSetWindowAttribute", "ptr", WindowSwitcher.HWND, "int", 19, "int*", 1, "int", 4)
         }
     } catch {
-        ; Fall back to basic font setting
-        WindowSwitcher.SetFont("s8", "Segoe UI")
+        ; Ignore if DWM API not available
     }
     WindowSwitcher.BackColor := 0x1E1E1E  ; Modern dark gray instead of pure black
     
@@ -488,7 +486,7 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     
     ; Create selection underline element
     BorderThickness := 3
-    global UnderlineBorder := WindowSwitcher.Add("Text", "x0 y0 w10 h" BorderThickness " Background0x0078D4", "")  ; Windows blue selection
+    global UnderlineBorder := WindowSwitcher.Add("Text", "x0 y0 w10 h" BorderThickness " Background0xFF00FF", "")  ; Magenta for high visibility
     
     ; Initially hide the underline
     UnderlineBorder.Visible := false
@@ -612,18 +610,8 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     } catch {
     }
     
-    ; Enable rounded corners and blur effect (GuiExt features)
-    try {
-        if (HasMethod(WindowSwitcher, "SetBorderless")) {
-            WindowSwitcher.SetBorderless(6)
-        }
-        if (VerCompare(A_OSVersion, "10.0.22600") >= 0 && HasMethod(WindowSwitcher, "SetWindowAttribute")) {
-            WindowSwitcher.SetWindowAttribute(DWMWA_USE_HOSTBACKDROPBRUSH, true)
-            WindowSwitcher.SetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_TRANSIENTWINDOW)
-        }
-    } catch {
-        ; GuiExt features not available, continue without them
-    }
+    ; Note: Advanced blur effects removed with GuiEnhancerKit
+    ; Rounded corners are still applied via DWM API above
 }
 
 CreateWindowIcon(window, ControlOptions) {
