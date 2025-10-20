@@ -1,6 +1,7 @@
 ; Requires AutoHotkey v2
 ; GuiEnhancerKit removed - using native AutoHotkey Gui with manual styling
 
+
 ;--------------------------------------------------------
 ; Window Switcher
 ;--------------------------------------------------------
@@ -60,12 +61,6 @@ global ControlToHWND := Map()
 global OriginalActiveWindow := 0  ; Store the window that was active before Alt+Tab
 
 global WindowToClose := 0  ; Store window handle for asynchronous closing
-global MouseHoverTimer := 0  ; Timer for mouse hover detection
-global EscapePressed := false  ; Flag to indicate Esc was pressed
-global CurrentModifier := ""  ; Track which modifier key is being used (Alt or Win)
-global DateTimeTab := 0  ; Date/time tab at the top
-global DateTimeTabWindow := 0  ; Separate window for the tab that sticks up
-global DebugLoggingEnabled := false  ; Global flag to enable/disable debug logging
 
 
 ;--------------------------------------------------------
@@ -73,34 +68,20 @@ global DebugLoggingEnabled := false  ; Global flag to enable/disable debug loggi
 ;--------------------------------------------------------
 
 DebugLog(message) {
-    global DebugLoggingEnabled
-    
-    ; Only log if debugging is enabled
-    if !DebugLoggingEnabled {
-        return
-    }
-    
     try {
         timestamp := FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss.fff")
         FileAppend(timestamp " | " message "`n", "debug.log")
-    } catch {
+        } catch {
         ; Ignore logging errors
+        }
     }
-}
 
 InitDebugLog() {
-    global DebugLoggingEnabled
-    
-    ; Only initialize if debugging is enabled
-    if !DebugLoggingEnabled {
-        return
-    }
-    
-    try {
+        try {
         ; Clear previous log
         FileDelete("debug.log")
         DebugLog("=== SCRIPT STARTED ===")
-    } catch {
+        } catch {
         ; Ignore errors
     }
 }
@@ -277,6 +258,28 @@ CollectAndSortWindows() {
     return SortedWindows
 }
 
+SortWindowsByZOrder(Windows) {
+    ; Sort windows by Z-order (most recently used first)
+    ; This is similar to how Windows' native Alt+Tab works
+    
+    if (Windows.Length <= 1) {
+        return Windows
+    }
+    
+    ; Simple approach: use insertion sort with Z-order comparison
+    for i in Range(2, Windows.Length) {
+        j := i
+        while (j > 1 && IsWindowOnTop(Windows[j].HWND, Windows[j-1].HWND)) {
+            ; Swap windows
+            temp := Windows[j]
+            Windows[j] := Windows[j-1]
+            Windows[j-1] := temp
+            j--
+        }
+    }
+    
+    return Windows
+}
 
 IsWindowOnTop(Window1, Window2) {
     ; Check if Window1 is on top of Window2 in Z-order
@@ -350,8 +353,8 @@ RemoveWindowFromSwitcher(TargetHWND, NewFocusIndex) {
     }
     
     ; Reposition remaining controls to remove gaps
-    IconSize := 64
-    IconSpacing := 12
+    IconSize := 48
+    IconSpacing := 10
     StartX := 10
     StartY := 10
     
@@ -426,122 +429,102 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     ; Small delay to ensure GUI is fully destroyed
     Sleep(50)
     
-    ; Create standard AutoHotkey GUI
-    global WindowSwitcher := Gui()
+    ; Try GuiExt first, fall back to regular Gui if not available
+    try {
+        global WindowSwitcher := GuiExt()
+    } catch {
+        global WindowSwitcher := Gui()
+    }
     global TitleDisplay := 0
     global ControlToHWND := Map()  ; Reset the mapping
     ; Border elements will be declared when created
     
-    ; Set GUI font and apply dark title bar manually
-    WindowSwitcher.SetFont("cWhite s8", "Segoe UI")
-    
-    ; Apply dark title bar using native Windows API
     try {
-        ; Dark title bar for Windows 10 build 17763+ and Windows 11
-        if (VerCompare(A_OSVersion, "10.0.18985") >= 0) {
-            DllCall("dwmapi\DwmSetWindowAttribute", "ptr", WindowSwitcher.HWND, "int", 20, "int*", 1, "int", 4)
-        } else if (VerCompare(A_OSVersion, "10.0.17763") >= 0) {
-            DllCall("dwmapi\DwmSetWindowAttribute", "ptr", WindowSwitcher.HWND, "int", 19, "int*", 1, "int", 4)
+        WindowSwitcher.SetFont("cWhite s8", "Segoe UI")
+        if (HasMethod(WindowSwitcher, "SetDarkTitle")) {
+            WindowSwitcher.SetDarkTitle()
+        }
+        if (HasMethod(WindowSwitcher, "SetDarkMenu")) {
+            WindowSwitcher.SetDarkMenu()
         }
     } catch {
-        ; Ignore if DWM API not available
+        ; Fall back to basic font setting
+        WindowSwitcher.SetFont("s8", "Segoe UI")
     }
-    WindowSwitcher.BackColor := 0x1E1E1E  ; Modern dark gray instead of pure black
+    WindowSwitcher.BackColor := 0x000000
     
     WindowSwitcher.MarginX := 10
     WindowSwitcher.MarginY := 10
     
-    ; Layout settings - optimized for developer efficiency
-    IconSize := 64  ; Larger for instant recognition
-    IconSpacing := 12  ; Tighter spacing to minimize eye scanning
+    ; Layout settings
+    IconSize := 48
+    IconSpacing := 8
     
-    ; Create selection underline element
-    BorderThickness := 3
-    global UnderlineBorder := WindowSwitcher.Add("Text", "x0 y0 w10 h" BorderThickness " Background0xFF00FF", "")  ; Magenta for high visibility
+    ; Create selection border elements (4 thin rectangles that form an outline)
+    BorderThickness := 2
+    global TopBorder := WindowSwitcher.Add("Text", "x0 y0 w10 h" BorderThickness " Background0xFF00FF", "")
+    global BottomBorder := WindowSwitcher.Add("Text", "x0 y0 w10 h" BorderThickness " Background0xFF00FF", "")
+    global LeftBorder := WindowSwitcher.Add("Text", "x0 y0 w" BorderThickness " h10 Background0xFF00FF", "")
+    global RightBorder := WindowSwitcher.Add("Text", "x0 y0 w" BorderThickness " h10 Background0xFF00FF", "")
     
-    ; Initially hide the underline
-    UnderlineBorder.Visible := false
+    ; Initially hide all border elements
+    TopBorder.Visible := false
+    BottomBorder.Visible := false
+    LeftBorder.Visible := false
+    RightBorder.Visible := false
     
-    ; Date/time will be added at the bottom after title display
-    
-        ; Horizontal layout - icons in a row
+        ; Horizontal layout - icons in rows
         MaxIconsPerRow := 10  ; Adjust as needed
-    
+        
+        ; Calculate total rows needed
+        TotalRows := Ceil(Windows.Length / MaxIconsPerRow)
         
         for index, window in Windows {
-        
-        ; Position calculation for horizontal layout - use absolute coordinates
-        AbsoluteX := 10 + (index - 1) * (IconSize + IconSpacing)
-        AbsoluteY := 10  ; Back to original position
-        
-        xPos := "x" AbsoluteX
-        yPos := "y" AbsoluteY
-        
+            ; Calculate row and column for this icon
+            row := Ceil(index / MaxIconsPerRow) - 1
+            col := Mod(index - 1, MaxIconsPerRow)
             
-            ; Line break if too many icons
-            if (index > MaxIconsPerRow) {
-                row := Ceil(index / MaxIconsPerRow) - 1
-                col := Mod(index - 1, MaxIconsPerRow)
-                if (col == 0) {
-                    xPos := "xM"
-                    yPos := "y+" IconSpacing
-                } else {
-                    xPos := "x+" IconSpacing
-                    yPos := ""
-                }
-            }
+            ; Position calculation for multi-row layout
+            AbsoluteX := 10 + (col * (IconSize + IconSpacing))
+            AbsoluteY := 10 + (row * (IconSize + IconSpacing))
             
-        ; Create icon control without naming it - make sure it can receive focus and mouse events
-        ControlOptions := xPos " " yPos " w" IconSize " h" IconSize " Tabstop +0x200"  ; Add SS_NOTIFY for mouse events
-        
-        
+            xPos := "x" AbsoluteX
+            yPos := "y" AbsoluteY
+            
+            ; Create icon control without naming it - make sure it can receive focus and mouse events
+            ControlOptions := xPos " " yPos " w" IconSize " h" IconSize " Tabstop +0x200"  ; Add SS_NOTIFY for mouse events
+            
             CreateWindowIcon(window, ControlOptions)
         }
         
-    ; Add title display area below icons
-        TitleAreaY := "y+" (IconSpacing + 10)  ; Add some extra spacing below icons
-    TitleDisplay := WindowSwitcher.Add("Text", "x10 y" (10 + IconSize + 8) " w400 h20 cWhite BackgroundTrans", "")
+    ; Add title display area below icons (accounting for multiple rows)
+    IconAreaHeight := 10 + (TotalRows * (IconSize + IconSpacing)) - IconSpacing + 10  ; Total height of icon area
+    TitleDisplay := WindowSwitcher.Add("Text", "x10 y" (IconAreaHeight + 8) " w400 h20 cWhite BackgroundTrans", "")
         TitleDisplay.SetFont("s11 w400", "Segoe UI")  ; Slightly larger, normal weight
     
     ; Add date/time text at the bottom, below the title display
     CurrentDateTime := FormatTime(A_Now, "HH:mm ddd MMM dd")
-    global DateTimeTab := WindowSwitcher.Add("Text", "x11 y" (10 + IconSize + 8 + 20 + 5) " w400 h20 Left BackgroundTrans cWhite", CurrentDateTime)
+    global DateTimeTab := WindowSwitcher.Add("Text", "x11 y" (IconAreaHeight + 8 + 20 + 5) " w400 h20 Left BackgroundTrans cWhite", CurrentDateTime)
     DateTimeTab.SetFont("s8 w300", "Segoe UI")  ; Smaller, lighter for secondary info
     
     WindowSwitcher.OnEvent("Escape", EscapeHandler)
     WindowSwitcher.OnEvent("Close", CloseHandler)
     WindowSwitcher.Opt("+AlwaysOnTop -SysMenu -Caption -Border +Owner")
     
-    ; Add subtle rounded corners for modern look (Windows 11 style)
-    try {
-        DllCall("dwmapi\DwmSetWindowAttribute", "ptr", WindowSwitcher.HWND, "int", 33, "int*", 2, "int", 4)
-    } catch {
-        ; Ignore if DWM API not available
-    }
+    ; Force center the window properly - calculate center manually
+    ; Get screen dimensions
+    MonitorGet(1, &MonLeft, &MonTop, &MonRight, &MonBottom)
+    ScreenWidth := MonRight - MonLeft
+    ScreenHeight := MonBottom - MonTop
+    ScreenCenterX := MonLeft + (ScreenWidth // 2)
+    ScreenCenterY := MonTop + (ScreenHeight // 2)
     
-    ; Position window 1/3 from left side of screen
-    try {
-        MonitorGet(1, &MonLeft, &MonTop, &MonRight, &MonBottom)
-        ScreenWidth := MonRight - MonLeft
-        ScreenHeight := MonBottom - MonTop
-        ScreenCenterY := MonTop + (ScreenHeight // 2)
-        CenterX := MonLeft + (ScreenWidth // 3)  ; Start 1/3 from left side
-        CenterY := ScreenCenterY - 85   ; Estimate window height/2 + extra for tab
-        DebugLog("Monitor: " MonLeft "," MonTop " to " MonRight "," MonBottom)
-        DebugLog("Screen 1/3 position: " CenterX "," CenterY)
-    } catch {
-        ; Fallback to 1/3 position on standard 1920px screen
-        CenterX := 640  ; 1920 / 3 = 640
-        CenterY := 525  ; Adjusted for tab
-        DebugLog("Using fallback 1/3 position: " CenterX "," CenterY)
-    }
+    ; Show at calculated center (offset by estimated window size)
+    CenterX := ScreenCenterX - 250  ; Estimate window width/2
+    CenterY := ScreenCenterY - 75   ; Estimate window height/2
     
     WindowSwitcher.Show("x" CenterX " y" CenterY)
     
-    ; Date/time is now part of the main window (no separate tab needed)
-    
-    ; Mouse hover detection disabled due to coordinate issues
-    ; MouseHoverTimer := SetTimer(CheckMouseHover, 100)
     
     ; Focus the GUI and the specified control so Tab cycling works
     WinActivate(WindowSwitcher.HWND)
@@ -581,8 +564,18 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     } catch {
     }
     
-    ; Note: Advanced blur effects removed with GuiEnhancerKit
-    ; Rounded corners are still applied via DWM API above
+    ; Enable rounded corners and blur effect (GuiExt features)
+    try {
+        if (HasMethod(WindowSwitcher, "SetBorderless")) {
+            WindowSwitcher.SetBorderless(6)
+        }
+        if (VerCompare(A_OSVersion, "10.0.22600") >= 0 && HasMethod(WindowSwitcher, "SetWindowAttribute")) {
+            WindowSwitcher.SetWindowAttribute(DWMWA_USE_HOSTBACKDROPBRUSH, true)
+            WindowSwitcher.SetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_TRANSIENTWINDOW)
+        }
+    } catch {
+        ; GuiExt features not available, continue without them
+    }
 }
 
 CreateWindowIcon(window, ControlOptions) {
@@ -681,7 +674,6 @@ GetHWNDFromControl(control) {
 
 
 
-
 OnIconClick(TargetHWND) {
     ; Handle mouse click on an icon - immediately activate window and close switcher
     global WindowSwitcher, MouseClickHandled
@@ -708,26 +700,11 @@ OnIconClick(TargetHWND) {
     }
 }
 
-; Mouse hover detection disabled due to coordinate system issues
-; CheckMouseHover() {
-;     ; Function disabled
-; }
-
-; CreateDateTimeTab function removed - date/time is now part of the main window
-
 CloseWindowSwitcher(*) {
-    global WindowSwitcher, IsWindowSwitcherActive, ControlToHWND, MouseHoverTimer, DateTimeTabWindow
+    global WindowSwitcher, IsWindowSwitcherActive, ControlToHWND
     
     DebugLog("CloseWindowSwitcher: Starting cleanup")
     IsWindowSwitcherActive := false
-    
-    ; Stop mouse hover timer
-    if MouseHoverTimer {
-        SetTimer(MouseHoverTimer, 0)
-        MouseHoverTimer := 0
-    }
-    
-    ; Date/time is now part of the main window (no separate cleanup needed)
     
     if !WindowSwitcher {
         return
@@ -744,10 +721,10 @@ CloseWindowSwitcher(*) {
 
 LastFocusHighlight := 0
 UpdateFocusHighlight() {
-    global UnderlineBorder, WindowSwitcher, TitleDisplay, AllSwitchableWindows
+    global TopBorder, BottomBorder, LeftBorder, RightBorder, WindowSwitcher, TitleDisplay, AllSwitchableWindows
     
     ; Make sure WindowSwitcher is a valid GUI object
-    if !WindowSwitcher || !IsObject(WindowSwitcher) || !UnderlineBorder {
+    if !WindowSwitcher || !IsObject(WindowSwitcher) || !TopBorder {
         return
     }
     
@@ -764,11 +741,24 @@ UpdateFocusHighlight() {
             ; Get the position of the focused control
             FocusedControl.GetPos(&x, &y, &w, &h)
             
-            BorderThickness := 3
+            BorderThickness := 2
             
-            ; Position the underline below the control
-            UnderlineBorder.Move(x, y + h + 2, w, BorderThickness)
-            UnderlineBorder.Visible := true
+            ; Position the 4 border elements to form an outline around the control
+            ; Top border
+            TopBorder.Move(x - BorderThickness, y - BorderThickness, w + (2 * BorderThickness), BorderThickness)
+            TopBorder.Visible := true
+            
+            ; Bottom border  
+            BottomBorder.Move(x - BorderThickness, y + h, w + (2 * BorderThickness), BorderThickness)
+            BottomBorder.Visible := true
+            
+            ; Left border
+            LeftBorder.Move(x - BorderThickness, y - BorderThickness, BorderThickness, h + (2 * BorderThickness))
+            LeftBorder.Visible := true
+            
+            ; Right border
+            RightBorder.Move(x + w, y - BorderThickness, BorderThickness, h + (2 * BorderThickness))
+            RightBorder.Visible := true
             
             ; Update title display
             if (TitleDisplay && IsObject(TitleDisplay)) {
@@ -810,12 +800,18 @@ UpdateFocusHighlight() {
             }
             
         } catch {
-            ; If positioning fails, hide the underline
-            UnderlineBorder.Visible := false
+            ; If positioning fails, hide all borders
+            TopBorder.Visible := false
+            BottomBorder.Visible := false
+            LeftBorder.Visible := false
+            RightBorder.Visible := false
         }
     } else {
-        ; No focused control, hide underline and clear title
-        UnderlineBorder.Visible := false
+        ; No focused control, hide all borders and clear title
+        TopBorder.Visible := false
+        BottomBorder.Visible := false
+        LeftBorder.Visible := false
+        RightBorder.Visible := false
         
         ; Clear title display
         if (TitleDisplay && IsObject(TitleDisplay)) {
@@ -831,11 +827,10 @@ UpdateFocusHighlight() {
 ; Alt+Tab hotkey - revert to original working pattern
 ; Unified Tab switching function for both Alt+Tab and Win+Tab
 HandleTabSwitching() {
-    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled, EscapePressed
+    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled
     
-    ; Reset flags at the start
+    ; Reset mouse click flag at the start
     MouseClickHandled := false
-    EscapePressed := false
     
     if WindowSwitcher && IsObject(WindowSwitcher) {
         ; Switcher is already open, cycle through windows
@@ -859,26 +854,8 @@ HandleTabSwitching() {
             Send "{Tab}"
         UpdateFocusHighlight()
     
-    ; Wait for the appropriate modifier key to be released, then activate selected window
-    if CurrentModifier == "Win" {
-        KeyWait "LWin"
-    } else {
-        KeyWait "LAlt"
-    }
-    
-    ; Check if Esc was pressed - if so, don't activate any window
-    if EscapePressed {
-        ; Esc was pressed, just close switcher without activating
-        CloseWindowSwitcher()
-        return
-    }
-    
-    ; Check if mouse click already handled activation
-    if MouseClickHandled {
-        ; Mouse click already activated a window, don't activate again
-        CloseWindowSwitcher()
-        return
-    }
+    ; Wait for Alt key to be released, then activate selected window
+    KeyWait "LAlt"
     
     ; Activate the selected window
         try {
@@ -919,20 +896,15 @@ HandleTabSwitching() {
     CloseWindowSwitcher()
 }
 
-!Tab:: {
-    global CurrentModifier
-    CurrentModifier := "Alt"
-    HandleTabSwitching()
-}
+!Tab:: HandleTabSwitching()
 
 ; Alt+Shift+Tab hotkey - reverse direction
 ; Unified reverse Tab switching function for both Alt+Shift+Tab and Win+Shift+Tab
 HandleReverseTabSwitching() {
-    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled, EscapePressed
+    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled
     
-    ; Reset flags at the start
+    ; Reset mouse click flag at the start
     MouseClickHandled := false
-    EscapePressed := false
     
     if WindowSwitcher && IsObject(WindowSwitcher) {
         ; Switcher is already open, cycle backwards through windows
@@ -953,24 +925,10 @@ HandleReverseTabSwitching() {
         Send "+{Tab}"
     UpdateFocusHighlight()
     
-    ; Wait for the appropriate modifier key to be released, then activate selected window
-    if CurrentModifier == "Win" {
-        KeyWait "LWin"
-    } else {
-        KeyWait "LAlt"
-    }
-    
-    ; Check if Esc was pressed - if so, don't activate any window
-    if EscapePressed {
-        ; Esc was pressed, just close switcher without activating
-        CloseWindowSwitcher()
-        return
-    }
     
     ; Check if mouse click already handled activation
     if MouseClickHandled {
         ; Mouse click already activated a window, don't activate again
-        CloseWindowSwitcher()
         return
     }
     
@@ -1009,48 +967,31 @@ HandleReverseTabSwitching() {
         }
     }
     
-    ; Close the switcher
-    CloseWindowSwitcher()
-    
     ; Function ends here
 }
 
-!+Tab:: {
-    global CurrentModifier
-    CurrentModifier := "Alt"
-    HandleReverseTabSwitching()
-}
+!+Tab:: HandleReverseTabSwitching()
 
 ; Win+Tab hotkey - same functionality as Alt+Tab for external keyboards
-#Tab:: {
-    global CurrentModifier
-    CurrentModifier := "Win"
-    HandleTabSwitching()
-}
+#Tab:: HandleTabSwitching()
 
 ; Win+Shift+Tab hotkey - reverse direction for external keyboards
-#+Tab:: {
-    global CurrentModifier
-    CurrentModifier := "Win"
-    HandleReverseTabSwitching()
-}
+#+Tab:: HandleReverseTabSwitching()
 
 ; Alt+Esc and Win+Esc to close the Alt+Tab window without switching
 !Escape::
 #Escape:: {
-    global WindowSwitcher, OriginalActiveWindow, EscapePressed
+    global WindowSwitcher, OriginalActiveWindow
     
     DebugLog("=== ALT+ESCAPE HOTKEY TRIGGERED! ===")
     DebugLog("Alt+Escape: WindowSwitcher exists = " (WindowSwitcher ? "true" : "false"))
     
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
-        ; Set flag to prevent window activation after Alt release
-        EscapePressed := true
         
         ; Close the switcher first
         DebugLog("Alt+Escape: Closing switcher normally")
-                        CloseWindowSwitcher()
+        CloseWindowSwitcher()
         
         ; Return to the original window that was active before Alt+Tab
         if OriginalActiveWindow {
@@ -1072,38 +1013,94 @@ HandleReverseTabSwitching() {
 ; Alt+Q and Win+Q to close/kill the currently selected window while switcher is open
 !q::
 #q:: {
-    global WindowSwitcher, AllSwitchableWindows, ControlToHWND, CurrentModifier
+    global WindowSwitcher, AllSwitchableWindows, ControlToHWND, TitleDisplay
     
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
-        DebugLog("Alt+Q: Close window and refresh switcher")
+        DebugLog("Alt+Q: Starting simple window close and re-list")
         
         ; Get the currently focused control and close its window
         try {
             FocusedControl := WindowSwitcher.FocusedCtrl
-            if FocusedControl {
+            DebugLog("Alt+Q: FocusedControl = " (FocusedControl ? "Found" : "None"))
+        if FocusedControl {
                 TargetHWND := GetHWNDFromControl(FocusedControl)
+                DebugLog("Alt+Q: TargetHWND = " TargetHWND)
+                
+                ; Debug: Check if we're about to close the switcher itself
+                SwitcherHWND := WindowSwitcher.HWND
+                DebugLog("Alt+Q: SwitcherHWND = " SwitcherHWND)
+                
+                if (TargetHWND == SwitcherHWND) {
+                    DebugLog("Alt+Q: ERROR! TargetHWND matches SwitcherHWND - would close switcher!")
+                    return
+                }
                 
                 if (TargetHWND) {
                     DebugLog("Alt+Q: Closing window " TargetHWND)
                     
-                    ; Close the window
+                    ; Close the window directly
                     WinClose("ahk_id " TargetHWND)
-                    Sleep(150)  ; Wait for window to close
+                    Sleep(100)  ; Brief pause for window to close
                     
-                    ; Close the current switcher
-                    CloseWindowSwitcher()
+                    ; Simple approach: just remove the icon and shift remaining ones
+                    DebugLog("Alt+Q: Simple icon removal and shift")
                     
-                    ; Brief pause then reopen the switcher with updated window list
-                    Sleep(50)
+                    ; Find and remove the control for the closed window
+                    ControlToRemove := ""
+                    for Control, HWND in ControlToHWND {
+                        if HWND == TargetHWND {
+                            ControlToRemove := Control
+                            break
+                        }
+                    }
                     
-                    ; Reopen the switcher (same as Alt+Tab)
-                    HandleTabSwitching()
+                    if ControlToRemove {
+                        ; Remove the control from the GUI
+                        try {
+                            ControlToRemove.Destroy()
+                        } catch {
+                            ; Control might already be destroyed
+                        }
+                        
+                        ; Remove from our mapping
+                        ControlToHWND.Delete(ControlToRemove)
+                        
+                        ; Shift remaining controls left to fill the gap
+                        IconSize := 48
+                        IconSpacing := 10
+                        StartX := 10
+                        StartY := 10
+                        
+                        index := 1
+                        for Control, HWND in ControlToHWND {
+                            xPos := StartX + ((index - 1) * (IconSize + IconSpacing))
+                            try {
+                                Control.Move(xPos, StartY, IconSize, IconSize)
+                            } catch {
+                                ; Control might be invalid
+                            }
+                            index++
+                        }
+                        
+                        ; Auto-select the first remaining control
+                        for Control, HWND in ControlToHWND {
+                            try {
+                                WindowSwitcher.FocusedCtrl := Control
+                                UpdateFocusHighlight()
+                                break
+                            } catch {
+                                ; Focus update failed
+                            }
+                        }
+                    }
                 }
             }
         } catch {
             DebugLog("Alt+Q: Error during window close")
         }
+        
+        DebugLog("Alt+Q: Simple handler completed!")
         
         return
     }
@@ -1122,6 +1119,21 @@ HandleReverseTabSwitching() {
 
 GroupIDCounter := 0
 
+SortArray(Array, ComparisonFunction) {
+    ; Insertion sort
+    i := 1
+    while (i < Array.Length) {
+        j := i
+        while (j > 0 && ComparisonFunction(Array[j], Array[j + 1]) > 0) {
+            Tmp := Array[j]
+            Array[j] := Array[j + 1]
+            Array[j + 1] := Tmp
+            j--
+        }
+        i++
+    }
+    return Array
+}
 
 FileGetVersionInfo_AW(PEFile := "", Fields := ["FileDescription"]) {
     ; Written by SKAN, updated for AHK v2
@@ -1154,10 +1166,32 @@ FileGetVersionInfo_AW(PEFile := "", Fields := ["FileDescription"]) {
     return PropertiesMap
 }
 
+;--------------------------------------------------------
+; AUTO RELOAD THIS SCRIPT
+;--------------------------------------------------------
+~^s:: {
+    if WinActive(A_ScriptName) {
+        MakeSplash("AHK Auto-Reload", "`n  Reloading " A_ScriptName "  `n", 500)
+        Reload
+    }
+}
+
+MakeSplash(Title, Text, Duration := 0) {
+    SplashGui := Gui(, Title)
+    SplashGui.Opt("+AlwaysOnTop +Disabled -SysMenu +Owner")
+    SplashGui.Add("Text", , Text)
+    SplashGui.Show("NoActivate")
+    if Duration {
+        Sleep(Duration)
+        SplashGui.Destroy()
+    }
+    return SplashGui
+}
 
 ;--------------------------------------------------------
 ; Caps Lock to Ctrl Remap Configuration
 ;--------------------------------------------------------
+
 ; Remap Caps Lock to act as Ctrl
 CapsLock::Ctrl
 
@@ -1166,3 +1200,8 @@ SetCapsLockState("Off")
 
 ; Initialize debug logging
 InitDebugLog()
+
+;--------------------------------------------------------
+; Status Display
+;--------------------------------------------------------
+
