@@ -65,7 +65,7 @@ global MouseClickHandled := false
 global TitleDisplay := 0
 global ControlToHWND := Map()
 global OriginalActiveWindow := 0  ; Store the window that was active before Alt+Tab
-global AltQWasPressed := false  ; Flag to prevent switcher closure after Alt+Q
+
 global WindowToClose := 0  ; Store window handle for asynchronous closing
 
 
@@ -132,94 +132,14 @@ DoAsyncWindowClose() {
 }
 
 EscapeHandler(*) {
-    global AltQWasPressed
-    DebugLog("GUI Escape Event: AltQWasPressed = " AltQWasPressed)
-    if !AltQWasPressed {
-        DebugLog("EscapeHandler: Closing switcher (AltQWasPressed = false)")
-        CloseWindowSwitcher()
-    } else {
-        DebugLog("EscapeHandler: Alt+Q was pressed, ignoring Escape event")
-    }
+    DebugLog("GUI Escape Event: Closing switcher")
+    CloseWindowSwitcher()
 }
 
 CloseHandler(*) {
     DebugLog("GUI Close Event Triggered!")
 }
 
-CheckModifierRelease() {
-    global WindowSwitcher, IsWindowSwitcherActive, AltQWasPressed, MouseClickHandled, AllSwitchableWindows
-    
-    ; Debug: Show that timer is running
-    static DebugCount := 0
-    DebugCount++
-    if (DebugCount == 1) {
-        DebugLog("CheckModifierRelease: Timer started, monitoring keys...")
-    }
-    
-    ; Check if any modifier keys are still pressed
-    if GetKeyState("LAlt") || GetKeyState("RAlt") || GetKeyState("LWin") || GetKeyState("RWin") {
-        return  ; Still holding modifier, keep checking
-    }
-    
-    ; Modifier released - stop the timer
-    SetTimer(CheckModifierRelease, 0)
-    
-    DebugLog("CheckModifierRelease: Modifier released! AltQWasPressed = " AltQWasPressed)
-    
-    ; Check if mouse click already handled activation
-    if MouseClickHandled {
-        ; Mouse click already activated a window, don't activate again
-        DebugLog("CheckModifierRelease: Mouse click handled, not activating")
-        return
-    }
-    
-    ; Activate the selected window before cleanup
-    try {
-        FocusedCtrl := WindowSwitcher.FocusedCtrl
-        if FocusedCtrl {
-            TargetHWND := GetHWNDFromControl(FocusedCtrl)
-            
-            if (TargetHWND) {
-                DebugLog("CheckModifierRelease: Activating window " TargetHWND)
-                ; Restore if minimized
-                MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
-                if MinMaxState == -1 {
-                    WinRestore("ahk_id " TargetHWND)
-                    Sleep(100)
-                }
-                
-                WinActivate("ahk_id " TargetHWND)
-            }
-        }
-    } catch {
-        ; Fallback - activate the first window
-        if AllSwitchableWindows.Length > 1 {
-            TargetHWND := AllSwitchableWindows[2].HWND
-            DebugLog("CheckModifierRelease: Fallback activating window " TargetHWND)
-            MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
-            if MinMaxState == -1 {
-                WinRestore("ahk_id " TargetHWND)
-                Sleep(100)
-            }
-            WinActivate("ahk_id " TargetHWND)
-        }
-    }
-    
-    ; Clean up properly - but only if Alt+Q wasn't pressed
-    DebugLog("CheckModifierRelease: AltQWasPressed = " AltQWasPressed)
-    
-    if !AltQWasPressed {
-        DebugLog("CheckModifierRelease: Closing switcher (AltQWasPressed = false)")
-        CloseWindowSwitcher()
-        IsWindowSwitcherActive := false
-    } else {
-        ; Alt+Q was pressed - stop the timer and keep switcher open
-        DebugLog("CheckModifierRelease: Alt+Q detected - stopping timer and keeping switcher open")
-        SetTimer(CheckModifierRelease, 0)  ; Stop the timer
-        ; Don't reset flag immediately - let it persist to block Escape events
-        ; Flag will be reset when next Alt+Tab session starts
-    }
-}
 
 GetWindowIconHandle(hwnd) {
     ; Optimized icon retrieval with early returns
@@ -792,16 +712,11 @@ OnIconClick(TargetHWND) {
 }
 
 CloseWindowSwitcher(*) {
-    global WindowSwitcher, IsWindowSwitcherActive, ControlToHWND, AltQWasPressed
+    global WindowSwitcher, IsWindowSwitcherActive, ControlToHWND
     
-    ; Debug: Show who called CloseWindowSwitcher and the flag state with stack trace
-    try {
-        throw Error("Stack trace")
-    } catch as e {
-        DebugLog("CloseWindowSwitcher CALLED! AltQWasPressed = " AltQWasPressed " | Stack: " e.Stack)
-    }
-    
+    DebugLog("CloseWindowSwitcher: Starting cleanup")
     IsWindowSwitcherActive := false
+    
     if !WindowSwitcher {
         return
     }
@@ -923,30 +838,23 @@ UpdateFocusHighlight() {
 ; Alt+Tab hotkey - revert to original working pattern
 ; Unified Tab switching function for both Alt+Tab and Win+Tab
 HandleTabSwitching() {
-    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled, AltQWasPressed
+    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled
     
     ; Reset mouse click flag at the start
     MouseClickHandled := false
     
     if WindowSwitcher && IsObject(WindowSwitcher) {
-        ; Switcher is already open - don't reset AltQWasPressed flag during cycling
         ; Switcher is already open, cycle through windows
         WinActivate(WindowSwitcher.HWND)
         Sleep(20)
         Send "{Tab}"
         UpdateFocusHighlight()
         
-        ; Ensure timer is running for modifier release detection
-        DebugLog("HandleTabSwitching: Cycling - ensuring timer is running")
-        SetTimer(CheckModifierRelease, 50)
+        ; Just cycle through windows - no timer needed
+        DebugLog("HandleTabSwitching: Cycling through windows")
         return
     }
     
-    ; Creating new switcher - reset Alt+Q flag for new session
-    if AltQWasPressed {
-        DebugLog("HandleTabSwitching: Resetting AltQWasPressed flag for new switcher session")
-    }
-    AltQWasPressed := false
     
     ; Collect and sort all switchable windows using optimized function
     SortedWindows := CollectAndSortWindows()
@@ -954,16 +862,49 @@ HandleTabSwitching() {
     ShowWindowSwitcher(SortedWindows)
     
     ; Initially select the next window (index 2, since index 1 is current)
-    Send "{Tab}"
-    UpdateFocusHighlight()
+            Send "{Tab}"
+        UpdateFocusHighlight()
     
-    ; Start non-blocking timer to monitor for modifier key release
-    DebugLog("HandleTabSwitching: Starting non-blocking modifier monitor...")
-    DebugLog("HandleTabSwitching: About to start CheckModifierRelease timer")
-    SetTimer(CheckModifierRelease, 50)
-    DebugLog("HandleTabSwitching: CheckModifierRelease timer started!")
+    ; Wait for Alt key to be released, then activate selected window
+    KeyWait "LAlt"
     
-    ; Function ends here - cleanup will be handled by CheckModifierRelease timer
+    ; Activate the selected window
+        try {
+            FocusedCtrl := WindowSwitcher.FocusedCtrl
+        if FocusedCtrl {
+            TargetHWND := GetHWNDFromControl(FocusedCtrl)
+            
+            if (TargetHWND) {
+                ; Restore if minimized
+                MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
+                if MinMaxState == -1 {
+                    WinRestore("ahk_id " TargetHWND)
+                    Sleep(100)
+                }
+                
+                WinActivate("ahk_id " TargetHWND)
+            }
+                }
+            } catch {
+        ; Fallback - activate the first available window
+        if AllSwitchableWindows.Length > 1 {
+            try {
+                TargetHWND := AllSwitchableWindows[2].HWND
+                MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
+                if MinMaxState == -1 {
+                    WinRestore("ahk_id " TargetHWND)
+                    Sleep(100)
+                }
+                WinActivate("ahk_id " TargetHWND)
+            } catch {
+                ; Window no longer exists, just close switcher
+                CloseWindowSwitcher()
+            }
+        }
+    }
+    
+    ; Close the switcher
+    CloseWindowSwitcher()
 }
 
 !Tab:: HandleTabSwitching()
@@ -971,21 +912,18 @@ HandleTabSwitching() {
 ; Alt+Shift+Tab hotkey - reverse direction
 ; Unified reverse Tab switching function for both Alt+Shift+Tab and Win+Shift+Tab
 HandleReverseTabSwitching() {
-    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled, AltQWasPressed
+    global WindowSwitcher, IsWindowSwitcherActive, AllSwitchableWindows, AltQPressed, MouseClickHandled
     
     ; Reset mouse click flag at the start
     MouseClickHandled := false
     
     if WindowSwitcher && IsObject(WindowSwitcher) {
-        ; Switcher is already open - don't reset AltQWasPressed flag during cycling
         ; Switcher is already open, cycle backwards through windows
         WinActivate(WindowSwitcher.HWND)
         Sleep(20)
         Send "+{Tab}"  ; Shift+Tab for reverse
         UpdateFocusHighlight()
         
-        ; Ensure timer is running for modifier release detection
-        SetTimer(CheckModifierRelease, 50)
         return
     }
     
@@ -995,11 +933,9 @@ HandleReverseTabSwitching() {
     ShowWindowSwitcher(SortedWindows)
     
     ; Start with reverse direction
-    Send "+{Tab}"
+        Send "+{Tab}"
     UpdateFocusHighlight()
     
-    ; Start non-blocking timer to monitor for modifier key release
-    SetTimer(CheckModifierRelease, 50)
     
     ; Check if mouse click already handled activation
     if MouseClickHandled {
@@ -1025,19 +961,24 @@ HandleReverseTabSwitching() {
             }
                 }
             } catch {
-        ; Fallback - activate the second window
+        ; Fallback - activate the second available window
         if AllSwitchableWindows.Length > 1 {
-            TargetHWND := AllSwitchableWindows[2].HWND
-            MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
-            if MinMaxState == -1 {
-                WinRestore("ahk_id " TargetHWND)
-                Sleep(100)
+            try {
+                TargetHWND := AllSwitchableWindows[2].HWND
+                MinMaxState := WinGetMinMax("ahk_id " TargetHWND)
+                if MinMaxState == -1 {
+                    WinRestore("ahk_id " TargetHWND)
+                    Sleep(100)
+                }
+                WinActivate("ahk_id " TargetHWND)
+            } catch {
+                ; Window no longer exists, just close switcher
+                CloseWindowSwitcher()
             }
-            WinActivate("ahk_id " TargetHWND)
         }
     }
     
-    ; Function ends here - cleanup will be handled by CheckModifierRelease timer
+    ; Function ends here
 }
 
 !+Tab:: HandleReverseTabSwitching()
@@ -1053,9 +994,14 @@ HandleReverseTabSwitching() {
 #Escape:: {
     global WindowSwitcher, OriginalActiveWindow
     
+    DebugLog("=== ALT+ESCAPE HOTKEY TRIGGERED! ===")
+    DebugLog("Alt+Escape: WindowSwitcher exists = " (WindowSwitcher ? "true" : "false"))
+    
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
+        
         ; Close the switcher first
+        DebugLog("Alt+Escape: Closing switcher normally")
         CloseWindowSwitcher()
         
         ; Return to the original window that was active before Alt+Tab
@@ -1078,16 +1024,11 @@ HandleReverseTabSwitching() {
 ; Alt+Q and Win+Q to close/kill the currently selected window while switcher is open
 !q::
 #q:: {
-    global WindowSwitcher, AllSwitchableWindows, ControlToHWND, TitleDisplay, AltQWasPressed
+    global WindowSwitcher, AllSwitchableWindows, ControlToHWND, TitleDisplay
     
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
-        ; Set flag to prevent main Alt+Tab logic from closing switcher
-        AltQWasPressed := true
-        DebugLog("Alt+Q: Set AltQWasPressed = true")
-        
-        ; Small delay to ensure flag is set before Alt release is detected
-        Sleep(50)
+        DebugLog("Alt+Q: Starting simple window close and re-list")
         
         ; Get the currently focused control and close its window
         try {
@@ -1107,27 +1048,16 @@ HandleReverseTabSwitching() {
                 }
                 
                 if (TargetHWND) {
-                    ; Close the window asynchronously to prevent switcher interference
-                    DebugLog("Alt+Q: About to close window " TargetHWND)
-                    AsyncCloseWindow(TargetHWND)
-                    Sleep(100)  ; Give a bit more time for async close
+                    DebugLog("Alt+Q: Closing window " TargetHWND)
                     
-                    ; Remove the closed window from our list
-                    UpdatedWindows := []
-                    for window in AllSwitchableWindows {
-                        if window.HWND != TargetHWND {
-                            UpdatedWindows.Push(window)
-                        }
-                    }
-                    AllSwitchableWindows := UpdatedWindows
+                    ; Close the window directly
+                    WinClose("ahk_id " TargetHWND)
+                    Sleep(100)  ; Brief pause for window to close
                     
-                    ; If no windows left, close the switcher
-                    if AllSwitchableWindows.Length == 0 {
-                        CloseWindowSwitcher()
-                        return
-                    }
+                    ; Simple approach: just remove the icon and shift remaining ones
+                    DebugLog("Alt+Q: Simple icon removal and shift")
                     
-                    ; Find and remove the control for this HWND
+                    ; Find and remove the control for the closed window
                     ControlToRemove := ""
                     for Control, HWND in ControlToHWND {
                         if HWND == TargetHWND {
@@ -1140,84 +1070,49 @@ HandleReverseTabSwitching() {
                         ; Remove the control from the GUI
                         try {
                             ControlToRemove.Destroy()
-            } catch {
+                        } catch {
                             ; Control might already be destroyed
                         }
                         
                         ; Remove from our mapping
                         ControlToHWND.Delete(ControlToRemove)
-                    }
-                    
-                    ; Get all remaining controls and reposition them
-                    RemainingControls := []
-                    for Control, HWND in ControlToHWND {
-                        ; Verify this window still exists in our updated list
-                        WindowExists := false
-                        for window in AllSwitchableWindows {
-                            if window.HWND == HWND {
-                                WindowExists := true
-                                break
-                            }
-                        }
-                        if WindowExists {
-                            RemainingControls.Push({Control: Control, HWND: HWND})
-                        }
-                    }
-                    
-                    ; Reposition remaining controls to remove gaps
-                    IconSize := 48
-                    IconSpacing := 10
-                    StartX := 10
-                    StartY := 10
-                    
-                    for index, item in RemainingControls {
-                        xPos := StartX + ((index - 1) * (IconSize + IconSpacing))
-                        try {
-                            item.Control.Move(xPos, StartY, IconSize, IconSize)
-                        } catch {
-                            ; Control might be invalid
-                        }
-                    }
-                    
-                    ; Update focus to the next available control
-                    if RemainingControls.Length > 0 {
-                        FocusIndex := 1  ; Default to first remaining control
-                        if FocusIndex <= RemainingControls.Length {
-                            try {
-                                TargetControl := RemainingControls[FocusIndex].Control
-                                WindowSwitcher.FocusedCtrl := TargetControl
-                                UpdateFocusHighlight()
-            } catch {
-                                ; Focus update failed
-                            }
-                        }
-                    }
-                    
-                    ; Resize the switcher window to fit remaining controls (preserve position)
-                    if RemainingControls.Length > 0 {
-                        NewWidth := (RemainingControls.Length * (IconSize + IconSpacing)) + IconSpacing
-                        NewHeight := IconSize + (IconSpacing * 2) + 60  ; Extra space for title
                         
-                        try {
-                            ; Get current position to preserve it
-                            WindowSwitcher.GetPos(&CurrentX, &CurrentY, &CurrentW, &CurrentH)
-                            WindowSwitcher.Move(CurrentX, CurrentY, NewWidth, NewHeight)
-            } catch {
-                            ; Resize failed, try without position preservation
+                        ; Shift remaining controls left to fill the gap
+                        IconSize := 48
+                        IconSpacing := 10
+                        StartX := 10
+                        StartY := 10
+                        
+                        index := 1
+                        for Control, HWND in ControlToHWND {
+                            xPos := StartX + ((index - 1) * (IconSize + IconSpacing))
                             try {
-                                WindowSwitcher.Move(, , NewWidth, NewHeight)
-                } catch {
-                                ; Complete resize failure
+                                Control.Move(xPos, StartY, IconSize, IconSize)
+                            } catch {
+                                ; Control might be invalid
+                            }
+                            index++
+                        }
+                        
+                        ; Auto-select the first remaining control
+                        for Control, HWND in ControlToHWND {
+                            try {
+                                WindowSwitcher.FocusedCtrl := Control
+                                UpdateFocusHighlight()
+                                break
+                            } catch {
+                                ; Focus update failed
                             }
                         }
                     }
                 }
             }
         } catch {
-            ; Error closing window - just ignore
+            DebugLog("Alt+Q: Error during window close")
         }
         
-        DebugLog("Alt+Q: Handler completed successfully!")
+        DebugLog("Alt+Q: Simple handler completed!")
+        
         return
     }
     
