@@ -61,6 +61,7 @@ global ControlToHWND := Map()
 global OriginalActiveWindow := 0  ; Store the window that was active before Alt+Tab
 
 global WindowToClose := 0  ; Store window handle for asynchronous closing
+global DebugLoggingEnabled := false  ; Set to true to enable debug logging
 
 
 ;--------------------------------------------------------
@@ -68,13 +69,16 @@ global WindowToClose := 0  ; Store window handle for asynchronous closing
 ;--------------------------------------------------------
 
 DebugLog(message) {
+    if (!DebugLoggingEnabled) {
+        return
+    }
     try {
         timestamp := FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss.fff")
         FileAppend(timestamp " | " message "`n", "debug.log")
-        } catch {
+    } catch {
         ; Ignore logging errors
-        }
     }
+}
 
 InitDebugLog() {
         try {
