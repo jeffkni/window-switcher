@@ -224,6 +224,24 @@ CollectAndSortWindows() {
                 continue
             }
             
+            ; Skip specific Zoom utility windows that clutter Alt+Tab
+            WindowClass := WinGetClass("ahk_id " WindowID)
+            
+            ; Debug logging for Zoom windows
+            if (ProcessName == "Zoom.exe" || InStr(WindowTitle, "VideoFrame") || InStr(WindowClass, "Video")) {
+                DebugLog("Zoom Window Found - Title: '" WindowTitle "', Class: '" WindowClass "', Process: " ProcessName)
+            }
+            
+            if (WindowClass == "ZBToolbarParentWnd" || WindowClass == "ZPToolBarParentWndClass" ||
+                WindowClass == "video_preview_fit_panel" || 
+                WindowClass == "VideoFrameWnd" || WindowClass == "VideoFrameWndClass" ||
+                WindowClass == "ZPFloatVideoWndClass" ||
+                WindowTitle == "VideoFrameWnd" || WindowTitle == "ZPToolBarParentWnd" ||
+                InStr(WindowClass, "VideoFrame")) {
+                DebugLog("Suppressing Zoom utility window - Class: '" WindowClass "', Title: '" WindowTitle "'")
+                continue
+            }
+            
             ; Get window icon
             WindowIcon := GetWindowIconHandle(WindowID)
             
@@ -429,12 +447,8 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     ; Small delay to ensure GUI is fully destroyed
     Sleep(50)
     
-    ; Try GuiExt first, fall back to regular Gui if not available
-    try {
-        global WindowSwitcher := GuiExt()
-    } catch {
-        global WindowSwitcher := Gui()
-    }
+    ; Create GUI using native AutoHotkey Gui
+    global WindowSwitcher := Gui()
     global TitleDisplay := 0
     global ControlToHWND := Map()  ; Reset the mapping
     ; Border elements will be declared when created
@@ -564,17 +578,11 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     } catch {
     }
     
-    ; Enable rounded corners and blur effect (GuiExt features)
+    ; Apply rounded corners using DWM API (native Windows 11 feature)
     try {
-        if (HasMethod(WindowSwitcher, "SetBorderless")) {
-            WindowSwitcher.SetBorderless(6)
-        }
-        if (VerCompare(A_OSVersion, "10.0.22600") >= 0 && HasMethod(WindowSwitcher, "SetWindowAttribute")) {
-            WindowSwitcher.SetWindowAttribute(DWMWA_USE_HOSTBACKDROPBRUSH, true)
-            WindowSwitcher.SetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE, DWMSBT_TRANSIENTWINDOW)
-        }
+        DllCall("dwmapi\DwmSetWindowAttribute", "ptr", WindowSwitcher.HWND, "int", 33, "int*", 2, "int", 4)
     } catch {
-        ; GuiExt features not available, continue without them
+        ; DWM API not available, continue without rounded corners
     }
 }
 
