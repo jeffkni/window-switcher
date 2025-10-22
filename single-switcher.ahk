@@ -469,7 +469,7 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
         ; Fall back to basic font setting
         WindowSwitcher.SetFont("s8", "Segoe UI")
     }
-    WindowSwitcher.BackColor := 0x000000
+    WindowSwitcher.BackColor := 0x404040
     
     WindowSwitcher.MarginX := 10
     WindowSwitcher.MarginY := 10
@@ -517,31 +517,87 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
         
     ; Add title display area below icons (accounting for multiple rows)
     IconAreaHeight := 10 + (TotalRows * (IconSize + IconSpacing)) - IconSpacing + 10  ; Total height of icon area
-    TitleDisplay := WindowSwitcher.Add("Text", "x10 y" (IconAreaHeight + 8) " w400 h20 cWhite BackgroundTrans", "")
+    TitleDisplay := WindowSwitcher.Add("Text", "x15 y" (IconAreaHeight + 8) " w400 h20 cWhite BackgroundTrans", "")
         TitleDisplay.SetFont("s11 w400", "Segoe UI")  ; Slightly larger, normal weight
     
     ; Add date/time text at the bottom, below the title display
-    CurrentDateTime := FormatTime(A_Now, "HH:mm ddd MMM dd")
-    global DateTimeTab := WindowSwitcher.Add("Text", "x11 y" (IconAreaHeight + 8 + 20 + 5) " w400 h20 Left BackgroundTrans cWhite", CurrentDateTime)
-    DateTimeTab.SetFont("s8 w300", "Segoe UI")  ; Smaller, lighter for secondary info
+    ; Get accurate timezone times with proper DST handling
+    
+    ; Get current UTC time
+    UTCTime := A_NowUTC
+    
+    ; Function to check if DST is active for US Eastern Time
+    ; US DST: Second Sunday in March to First Sunday in November
+    IsDSTActiveUS(DateTime) {
+        Year := FormatTime(DateTime, "yyyy")
+        
+        ; Find second Sunday in March
+        March1 := Year . "0301000000"
+        March1DayOfWeek := FormatTime(March1, "WDay")  ; 1=Sunday, 2=Monday, etc.
+        DaysToFirstSunday := March1DayOfWeek == 1 ? 0 : (8 - March1DayOfWeek)
+        SecondSundayMarch := DateAdd(March1, DaysToFirstSunday + 7, "Days")
+        
+        ; Find first Sunday in November
+        Nov1 := Year . "1101000000"
+        Nov1DayOfWeek := FormatTime(Nov1, "WDay")
+        DaysToFirstSunday := Nov1DayOfWeek == 1 ? 0 : (8 - Nov1DayOfWeek)
+        FirstSundayNov := DateAdd(Nov1, DaysToFirstSunday, "Days")
+        
+        ; Check if current date is between DST start and end
+        return (DateTime >= SecondSundayMarch && DateTime < FirstSundayNov)
+    }
+    
+    ; Function to check if DST is active for UK (BST)
+    ; UK DST: Last Sunday in March to Last Sunday in October
+    IsDSTActiveUK(DateTime) {
+        Year := FormatTime(DateTime, "yyyy")
+        
+        ; Find last Sunday in March
+        March31 := Year . "0331000000"
+        March31DayOfWeek := FormatTime(March31, "WDay")
+        DaysBackToSunday := March31DayOfWeek == 1 ? 0 : (March31DayOfWeek - 1)
+        LastSundayMarch := DateAdd(March31, -DaysBackToSunday, "Days")
+        
+        ; Find last Sunday in October
+        Oct31 := Year . "1031000000"
+        Oct31DayOfWeek := FormatTime(Oct31, "WDay")
+        DaysBackToSunday := Oct31DayOfWeek == 1 ? 0 : (Oct31DayOfWeek - 1)
+        LastSundayOct := DateAdd(Oct31, -DaysBackToSunday, "Days")
+        
+        ; Check if current date is between DST start and end
+        return (DateTime >= LastSundayMarch && DateTime < LastSundayOct)
+    }
+    
+    ; Calculate NY Time (Eastern Time)
+    NYOffset := IsDSTActiveUS(UTCTime) ? -4 : -5  ; EDT or EST
+    NYTime := DateAdd(UTCTime, NYOffset, "Hours")
+    NYTimeStr := FormatTime(NYTime, "HH:mm")
+    
+    ; Calculate UK Time (GMT/BST)
+    UKOffset := IsDSTActiveUK(UTCTime) ? 1 : 0  ; BST or GMT
+    UKTime := DateAdd(UTCTime, UKOffset, "Hours")
+    UKTimeStr := FormatTime(UKTime, "HH:mm")
+    
+    TimeDisplay := NYTimeStr " NY | " UKTimeStr " UK"
+    global DateTimeTab := WindowSwitcher.Add("Text", "x15 y" (IconAreaHeight + 8 + 20 + 5) " w400 h20 Left BackgroundTrans cWhite", TimeDisplay)
+    DateTimeTab.SetFont("s12 w400", "Segoe UI")  ; Larger font for better visibility
     
     WindowSwitcher.OnEvent("Escape", EscapeHandler)
     WindowSwitcher.OnEvent("Close", CloseHandler)
     WindowSwitcher.Opt("+AlwaysOnTop -SysMenu -Caption -Border +Owner")
     
-    ; Force center the window properly - calculate center manually
+    ; Position window with left edge at 1/3 point horizontally and top edge at 1/3 point vertically
     ; Get screen dimensions
     MonitorGet(1, &MonLeft, &MonTop, &MonRight, &MonBottom)
     ScreenWidth := MonRight - MonLeft
     ScreenHeight := MonBottom - MonTop
-    ScreenCenterX := MonLeft + (ScreenWidth // 2)
-    ScreenCenterY := MonTop + (ScreenHeight // 2)
     
-    ; Show at calculated center (offset by estimated window size)
-    CenterX := ScreenCenterX - 250  ; Estimate window width/2
-    CenterY := ScreenCenterY - 75   ; Estimate window height/2
+    ; Calculate 1/3 points - LEFT EDGE starts at horizontal 1/3, TOP EDGE starts at vertical 1/3
+    OneThirdX := MonLeft + (ScreenWidth // 3)
+    OneThirdY := MonTop + (ScreenHeight // 3)
     
-    WindowSwitcher.Show("x" CenterX " y" CenterY)
+    ; Position with left edge at horizontal 1/3 and top edge at vertical 1/3
+    WindowSwitcher.Show("x" OneThirdX " y" OneThirdY)
     
     
     ; Focus the GUI and the specified control so Tab cycling works
@@ -801,7 +857,7 @@ UpdateFocusHighlight() {
                         }
                         
                         ; Update the title display (with leading space for margin)
-                        TitleDisplay.Text := " " . Trim(WindowTitle)
+                        TitleDisplay.Text := Trim(WindowTitle)
                     }
                 } catch {
                     ; If title update fails, clear the display
