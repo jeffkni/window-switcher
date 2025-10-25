@@ -922,8 +922,15 @@ HandleTabSwitching() {
             Send "{Tab}"
         UpdateFocusHighlight()
     
-    ; Wait for Alt key to be released, then activate selected window
-    KeyWait "LAlt"
+    ; Wait for Alt or Win key to be released, then activate selected window
+    ; Check which modifier key was pressed and wait for its release
+    if GetKeyState("LAlt", "P") || GetKeyState("RAlt", "P") {
+        KeyWait "LAlt"
+        KeyWait "RAlt"
+    } else if GetKeyState("LWin", "P") || GetKeyState("RWin", "P") {
+        KeyWait "LWin"
+        KeyWait "RWin"
+    }
     
     ; Activate the selected window
         try {
@@ -993,6 +1000,15 @@ HandleReverseTabSwitching() {
         Send "+{Tab}"
     UpdateFocusHighlight()
     
+    ; Wait for Alt or Win key to be released, then activate selected window
+    ; Check which modifier key was pressed and wait for its release
+    if GetKeyState("LAlt", "P") || GetKeyState("RAlt", "P") {
+        KeyWait "LAlt"
+        KeyWait "RAlt"
+    } else if GetKeyState("LWin", "P") || GetKeyState("RWin", "P") {
+        KeyWait "LWin"
+        KeyWait "RWin"
+    }
     
     ; Check if mouse click already handled activation
     if MouseClickHandled {
