@@ -14,13 +14,11 @@ global DebugGui := 0
 global DPIScaleX := 1.0, DPIScaleY := 1.0, DPIChecked := false
 
 ; Debug logging function (disabled for performance)
-DebugLog(message) {
-    ; FileAppend(FormatTime(A_Now, "HH:mm:ss.fff") " - " message "`n", "screenshot_debug.log")
-    ; Debug logging disabled for clean performance
-}
+; Debug logging removed for clean performance
 
 ; Ctrl+9 hotkey to start drag-area screenshot
 ^9::StartDragScreenshot()
+
 
 StartDragScreenshot() {
     global ScreenshotActive, OverlayGui, StartX, StartY, SelectionGui, DPIChecked
@@ -34,8 +32,6 @@ StartDragScreenshot() {
     
     ; Get current cursor position as the anchor point (FIXED - never changes)
     MouseGetPos(&StartX, &StartY)
-    DebugLog("=== SCREENSHOT STARTED ===")
-    DebugLog("Origin (A) set at: " StartX ", " StartY)
     
     ; Create full-screen overlay to capture mouse events
     OverlayGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +LastFound +ToolWindow", "Screenshot")
@@ -69,15 +65,17 @@ StartDragScreenshot() {
     
     ; Diagonal lines removed for cleaner appearance
     
-    ; Create a BIG RED DOT at the exact origin point
-    global ReferenceGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +LastFound +ToolWindow -Caption", "RedDot")
+    ; Create a small red circle at the exact origin point
+    global ReferenceGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +LastFound +ToolWindow -Caption +E0x80000", "RedDot")
     ReferenceGui.BackColor := "Red"
     ReferenceGui.MarginX := 0
     ReferenceGui.MarginY := 0
     
-    ; Show a LARGE red dot so we can definitely see it
-    ReferenceGui.Show("x" (StartX-10) " y" (StartY-10) " w20 h20 NoActivate")
-    DebugLog("Red dot created at: " (StartX-10) "," (StartY-10) " size 20x20")
+    ; Show a small red circle (8x8 pixels)
+    ReferenceGui.Show("x" (StartX-4) " y" (StartY-4) " w8 h8 NoActivate")
+    
+    ; Make it circular by setting a circular region
+    DllCall("SetWindowRgn", "Ptr", ReferenceGui.Hwnd, "Ptr", DllCall("CreateEllipticRgn", "Int", 0, "Int", 0, "Int", 8, "Int", 8, "Ptr"), "Int", 1)
     
     ; Debug window disabled for performance
     ; MonitorGet(1, &MonLeft, &MonTop, &MonRight, &MonBottom)
@@ -150,15 +148,12 @@ UpdateSelection() {
     
     ; Check if SelectionGui is valid, if not recreate it
     if (!SelectionGui || !IsObject(SelectionGui)) {
-        DebugLog("SelectionGui invalid, recreating...")
         try {
             SelectionGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +LastFound +ToolWindow -Caption +E0x80000", "Selection")
             SelectionGui.BackColor := "0xFF00FF"  ; Magenta background
             SelectionGui.MarginX := 0
             SelectionGui.MarginY := 0
-            DebugLog("SelectionGui recreated successfully")
         } catch Error as e {
-            DebugLog("SelectionGui recreation failed: " e.Message)
             return  ; If GUI creation fails, skip this update
         }
     }
@@ -219,9 +214,6 @@ UpdateSelection() {
     BoxJ_X := GuiLeft, BoxJ_Y := GuiTop + Height
     BoxK_X := GuiLeft + Width, BoxK_Y := GuiTop + Height
     
-    DebugLog("QUADRANT " Quadrant " - Red dot (A): " StartX "," StartY " | Mouse: " CurrentX "," CurrentY)
-    DebugLog("QUADRANT " Quadrant " - GUI pos: " GuiLeft "," GuiTop " | Size: " Width "x" Height)
-    DebugLog("QUADRANT " Quadrant " - Box corners: h(" BoxH_X "," BoxH_Y ") i(" BoxI_X "," BoxI_Y ") j(" BoxJ_X "," BoxJ_Y ") k(" BoxK_X "," BoxK_Y ")")
     
     ; Calculate expected corner position based on quadrant
     if (Quadrant == "Z") {
@@ -238,7 +230,6 @@ UpdateSelection() {
         CornerName := "bottom-right"
     }
     
-    DebugLog("QUADRANT " Quadrant " - A should be at " CornerName " corner: " ExpectedCornerX "," ExpectedCornerY)
     
     ; Check if math is correct AND if red dot would be at corner (not inside)
     MathCorrect := (ExpectedCornerX == StartX && ExpectedCornerY == StartY)
@@ -256,8 +247,6 @@ UpdateSelection() {
         MathStatus := "NO - Math wrong, red dot outside"
     }
     
-    DebugLog("QUADRANT " Quadrant " - Math status: " MathStatus)
-    DebugLog("QUADRANT " Quadrant " - Red dot inside rect: " (RedDotInsideRect ? "YES (BAD)" : "NO (GOOD)"))
     
     ; Debug window updates disabled for performance
     ; if (IsObject(DebugText)) {
@@ -287,13 +276,11 @@ UpdateSelection() {
     ; Show translucent magenta rectangle
     if (Width > 4 && Height > 4) {
         if (!IsObject(SelectionGui)) {
-            DebugLog("SelectionGui is invalid, recreating...")
             ; Recreate the GUI
             SelectionGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +LastFound +ToolWindow -Caption +E0x80000", "Selection")
             SelectionGui.BackColor := "0xFF00FF"  ; Magenta background
             SelectionGui.MarginX := 0
             SelectionGui.MarginY := 0
-            DebugLog("SelectionGui recreated with HWND: " SelectionGui.HWND)
         }
         
         try {
@@ -309,18 +296,15 @@ UpdateSelection() {
                 DPIScaleY := TestH / 100
                 DPIChecked := true
                 
-                DebugLog("DPI scaling detected: " DPIScaleX "x" DPIScaleY)
             }
             
             ; Use DPI-compensated size if needed
             if (Abs(DPIScaleX - 1) > 0.1 || Abs(DPIScaleY - 1) > 0.1) {
                 AdjustedWidth := Round(Width / DPIScaleX)
                 AdjustedHeight := Round(Height / DPIScaleY)
-                DebugLog("Showing DPI-adjusted GUI: " AdjustedWidth "x" AdjustedHeight " at " GuiLeft "," GuiTop)
                 SelectionGui.Show("x" GuiLeft " y" GuiTop " w" AdjustedWidth " h" AdjustedHeight " NoActivate")
             } else {
                 ; No scaling needed
-                DebugLog("Showing normal GUI: " Width "x" Height " at " GuiLeft "," GuiTop)
                 SelectionGui.Show("x" GuiLeft " y" GuiTop " w" Width " h" Height " NoActivate")
             }
             
@@ -330,7 +314,6 @@ UpdateSelection() {
             ; GUI is now showing successfully
             
         } catch Error as e {
-            DebugLog("SelectionGui failed: " e.Message)
         }
     }
 }
@@ -421,59 +404,23 @@ SaveScreenshotAndOpenInPaint(X, Y, Width, Height) {
     FileName := "Screenshot_" TimeStamp ".png"
     FilePath := ScreenshotDir "\" FileName
     
-    ; Try a much simpler approach using a one-liner PowerShell command
+    ; Save clipboard image to file and open in MS Paint
     try {
-        ; Debug: Show what we're trying to do
-        ToolTip("Attempting to save to: " FilePath)
-        SetTimer(() => ToolTip(), -2000)
+        ; Use PowerShell to save clipboard image
+        PSCmd := 'powershell.exe -Command "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; if ([System.Windows.Forms.Clipboard]::ContainsImage()) { $img = [System.Windows.Forms.Clipboard]::GetImage(); $img.Save(\"' FilePath '\", [System.Drawing.Imaging.ImageFormat]::Png); $img.Dispose() }"'
         
-        ; Use a simple one-line PowerShell command
-        PSCmd := 'powershell.exe -Command "Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; if ([System.Windows.Forms.Clipboard]::ContainsImage()) { $img = [System.Windows.Forms.Clipboard]::GetImage(); $img.Save(\"' FilePath '\", [System.Drawing.Imaging.ImageFormat]::Png); $img.Dispose(); Write-Host \"SAVED\" } else { Write-Host \"NO_IMAGE\" }"'
-        
-        ; Run the command and wait for completion
         RunWait(PSCmd, , "Hide")
+        Sleep(500)
         
-        ; Wait a moment for file system to catch up
-        Sleep(1000)
-        
-        ; Check if file was created and show debug info
+        ; Open in MS Paint
         if (FileExist(FilePath)) {
-            FileSize := FileGetSize(FilePath)
             Run("mspaint.exe `"" FilePath "`"")
-            ToolTip("SUCCESS! File saved: " FileSize " bytes")
-            SetTimer(() => ToolTip(), -3000)
         } else {
-            ; Try alternative approach - use Windows built-in screenshot saving
-            ; Create a simple batch file that uses PowerShell
-            BatchContent := '@echo off`n'
-            BatchContent .= 'powershell.exe -Command "& {Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; if ([System.Windows.Forms.Clipboard]::ContainsImage()) { $img = [System.Windows.Forms.Clipboard]::GetImage(); $img.Save(\"' FilePath '\", [System.Drawing.Imaging.ImageFormat]::Png); $img.Dispose() }}"'
-            
-            TempBat := A_Temp "\save_screenshot.bat"
-            FileDelete(TempBat)
-            FileAppend(BatchContent, TempBat)
-            
-            RunWait('"' TempBat '"', , "Hide")
-            FileDelete(TempBat)
-            
-            Sleep(500)
-            
-            if (FileExist(FilePath)) {
-                Run("mspaint.exe `"" FilePath "`"")
-                ToolTip("SUCCESS via batch method!")
-                SetTimer(() => ToolTip(), -2000)
-            } else {
-                ; Final fallback - just open Paint
-                Run("mspaint.exe")
-                ToolTip("FAILED to save file - check if clipboard has image, paste in Paint")
-                SetTimer(() => ToolTip(), -4000)
-            }
+            Run("mspaint.exe")
         }
         
     } catch Error as e {
-        ; Final fallback - just open Paint
         Run("mspaint.exe")
-        ToolTip("ERROR: " e.Message " - paste from clipboard in Paint")
-        SetTimer(() => ToolTip(), -4000)
     }
 }
 
@@ -484,7 +431,6 @@ CancelScreenshot(*) {
 CleanupScreenshot() {
     global ScreenshotActive, OverlayGui, SelectionGui, ReferenceGui, DebugGui
     
-    DebugLog("=== SCREENSHOT CLEANUP ===")
     
     ScreenshotActive := false
     
