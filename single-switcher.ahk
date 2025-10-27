@@ -334,107 +334,6 @@ Range(start, end) {
 ; Window Switcher UI
 ;--------------------------------------------------------
 
-RemoveWindowFromSwitcher(TargetHWND, NewFocusIndex) {
-    global WindowSwitcher, ControlToHWND, AllSwitchableWindows, TitleDisplay
-    
-    ; Find and remove the control for this HWND
-    ControlToRemove := ""
-    for Control, HWND in ControlToHWND {
-        if HWND == TargetHWND {
-            ControlToRemove := Control
-            break
-        }
-    }
-    
-    if ControlToRemove {
-        ; Remove the control from the GUI (this leaves a gap)
-        try {
-            ControlToRemove.Destroy()
-        } catch {
-            ; Control might already be destroyed
-        }
-        
-        ; Remove from our mapping
-        ControlToHWND.Delete(ControlToRemove)
-    }
-    
-    ; Get all remaining controls and reposition them to remove gaps
-    RemainingControls := []
-    for Control, HWND in ControlToHWND {
-        ; Verify this window still exists in our updated list
-        WindowExists := false
-        for window in AllSwitchableWindows {
-            if window.HWND == HWND {
-                WindowExists := true
-                break
-            }
-        }
-        if WindowExists {
-            RemainingControls.Push({Control: Control, HWND: HWND})
-        }
-    }
-    
-    ; Reposition remaining controls to remove gaps
-    IconSize := 48
-    IconSpacing := 10
-    StartX := 10
-    StartY := 10
-    
-    for index, item in RemainingControls {
-        xPos := StartX + ((index - 1) * (IconSize + IconSpacing))
-        try {
-            item.Control.Move(xPos, StartY, IconSize, IconSize)
-        } catch {
-            ; Control might be invalid
-        }
-    }
-    
-    ; Update focus to the next available control
-    if RemainingControls.Length > 0 {
-        FocusIndex := NewFocusIndex
-        if FocusIndex > RemainingControls.Length {
-            FocusIndex := RemainingControls.Length
-        }
-        if FocusIndex < 1 {
-            FocusIndex := 1
-        }
-        
-        try {
-            TargetControl := RemainingControls[FocusIndex].Control
-            WindowSwitcher.FocusedCtrl := TargetControl
-            UpdateFocusHighlight()
-        } catch {
-            ; Focus update failed - try the first available control
-            if RemainingControls.Length > 0 {
-                try {
-                    WindowSwitcher.FocusedCtrl := RemainingControls[1].Control
-                    UpdateFocusHighlight()
-                } catch {
-                    ; Complete focus failure
-                }
-            }
-        }
-    }
-    
-    ; Resize the switcher window to fit remaining controls (preserve position)
-    if RemainingControls.Length > 0 {
-        NewWidth := (RemainingControls.Length * (IconSize + IconSpacing)) + IconSpacing
-        NewHeight := IconSize + (IconSpacing * 2) + 60  ; Extra space for title
-        
-        try {
-            ; Get current position to preserve it
-            WindowSwitcher.GetPos(&CurrentX, &CurrentY, &CurrentW, &CurrentH)
-            WindowSwitcher.Move(CurrentX, CurrentY, NewWidth, NewHeight)
-        } catch {
-            ; Resize failed, try without position preservation
-            try {
-                WindowSwitcher.Move(, , NewWidth, NewHeight)
-            } catch {
-                ; Complete resize failure
-            }
-        }
-    }
-}
 
 ShowWindowSwitcher(Windows, FocusIndex := 1) {
     global OriginalActiveWindow
@@ -605,33 +504,32 @@ ShowWindowSwitcher(Windows, FocusIndex := 1) {
     try {
         ; Get the control at the specified index and focus it
         TargetControl := ""
-        for index, window in Windows {
-            if index == FocusIndex {
-                ControlName := "IconForWindowWithHWND" window.HWND
-                try {
-                    TargetControl := WindowSwitcher[ControlName]
-                    if TargetControl {
+        if FocusIndex >= 1 && FocusIndex <= Windows.Length {
+            TargetWindow := Windows[FocusIndex]
+            ; Find the control for this window's HWND
+            for Control, HWND in ControlToHWND {
+                if HWND == TargetWindow.HWND {
+                    TargetControl := Control
+                    try {
                         TargetControl.Focus()
                         UpdateFocusHighlight()
                         break
+                    } catch {
+                        TargetControl := ""
                     }
-                } catch {
                 }
             }
         }
         
         ; If we couldn't focus the target index, focus the first available control
         if !TargetControl {
-            for index, window in Windows {
-                ControlName := "IconForWindowWithHWND" window.HWND
+            for Control, HWND in ControlToHWND {
                 try {
-                    FirstControl := WindowSwitcher[ControlName]
-                    if FirstControl {
-                        FirstControl.Focus()
-                        UpdateFocusHighlight()
-                        break
-                    }
+                    Control.Focus()
+                    UpdateFocusHighlight()
+                    break
                 } catch {
+                    ; Continue to next control
                 }
             }
         }
@@ -1101,13 +999,14 @@ HandleReverseTabSwitching() {
     
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
-        DebugLog("Alt+Q: Starting simple window close and re-list")
+        DebugLog("Alt+Q: Starting window close and proper re-layout")
         
         ; Get the currently focused control and close its window
         try {
             FocusedControl := WindowSwitcher.FocusedCtrl
             DebugLog("Alt+Q: FocusedControl = " (FocusedControl ? "Found" : "None"))
-        if FocusedControl {
+            
+            if FocusedControl {
                 TargetHWND := GetHWNDFromControl(FocusedControl)
                 DebugLog("Alt+Q: TargetHWND = " TargetHWND)
                 
@@ -1123,69 +1022,70 @@ HandleReverseTabSwitching() {
                 if (TargetHWND) {
                     DebugLog("Alt+Q: Closing window " TargetHWND)
                     
-                    ; Close the window directly
-                    WinClose("ahk_id " TargetHWND)
-                    Sleep(100)  ; Brief pause for window to close
-                    
-                    ; Simple approach: just remove the icon and shift remaining ones
-                    DebugLog("Alt+Q: Simple icon removal and shift")
-                    
-                    ; Find and remove the control for the closed window
-                    ControlToRemove := ""
-                    for Control, HWND in ControlToHWND {
-                        if HWND == TargetHWND {
-                            ControlToRemove := Control
+                    ; Find the index of the window being closed BEFORE removing it
+                    FocusIndex := 1
+                    for index, window in AllSwitchableWindows {
+                        if window.HWND == TargetHWND {
+                            FocusIndex := index
                             break
                         }
                     }
                     
-                    if ControlToRemove {
-                        ; Remove the control from the GUI
+                    ; Calculate new focus index to move to the next item
+                    ; After removal, the "next" item will be at the same index position
+                    ; unless we're removing the last item, then focus on the new last item
+                    NewFocusIndex := FocusIndex
+                    UpdatedWindowsLength := AllSwitchableWindows.Length - 1  ; Length after removal
+                    if FocusIndex > UpdatedWindowsLength {
+                        ; We're removing the last item, focus on the new last item
+                        NewFocusIndex := UpdatedWindowsLength
+                    }
+                    ; Ensure we have a valid index
+                    if NewFocusIndex < 1 {
+                        NewFocusIndex := 1
+                    }
+                    
+                    ; Close the window
+                    WinClose("ahk_id " TargetHWND)
+                    Sleep(100)  ; Brief pause for window to close
+                    
+                    ; Remove the closed window from AllSwitchableWindows array
+                    UpdatedWindows := []
+                    for window in AllSwitchableWindows {
+                        if window.HWND != TargetHWND {
+                            UpdatedWindows.Push(window)
+                        }
+                    }
+                    AllSwitchableWindows := UpdatedWindows
+                    
+                    ; If no windows left, close the switcher
+                    if AllSwitchableWindows.Length == 0 {
+                        CloseWindowSwitcher()
+                        return
+                    }
+                    
+                    ; Destroy all existing controls
+                    for Control, HWND in ControlToHWND {
                         try {
-                            ControlToRemove.Destroy()
+                            Control.Destroy()
                         } catch {
                             ; Control might already be destroyed
                         }
-                        
-                        ; Remove from our mapping
-                        ControlToHWND.Delete(ControlToRemove)
-                        
-                        ; Shift remaining controls left to fill the gap
-                        IconSize := 48
-                        IconSpacing := 10
-                        StartX := 10
-                        StartY := 10
-                        
-                        index := 1
-                        for Control, HWND in ControlToHWND {
-                            xPos := StartX + ((index - 1) * (IconSize + IconSpacing))
-                            try {
-                                Control.Move(xPos, StartY, IconSize, IconSize)
-                            } catch {
-                                ; Control might be invalid
-                            }
-                            index++
-                        }
-                        
-                        ; Auto-select the first remaining control
-                        for Control, HWND in ControlToHWND {
-                            try {
-                                WindowSwitcher.FocusedCtrl := Control
-                                UpdateFocusHighlight()
-                                break
-                            } catch {
-                                ; Focus update failed
-                            }
-                        }
                     }
+                    
+                    ; Clear the control mapping
+                    ControlToHWND := Map()
+                    
+                    ; Recreate the switcher with remaining windows
+                    CloseWindowSwitcher()
+                    ShowWindowSwitcher(AllSwitchableWindows, NewFocusIndex)
                 }
             }
         } catch {
-            DebugLog("Alt+Q: Error during window close")
+            DebugLog("Alt+Q: Error during window close - " A_LastError)
         }
         
-        DebugLog("Alt+Q: Simple handler completed!")
-        
+        DebugLog("Alt+Q: Complete re-layout handler completed!")
         return
     }
     
