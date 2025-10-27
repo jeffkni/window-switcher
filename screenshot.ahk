@@ -59,7 +59,7 @@ StartDragScreenshot() {
     
     ; Create selection rectangle GUI with translucent magenta fill
     global SelectionGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +LastFound +ToolWindow -Caption +E0x80000", "Selection")
-    SelectionGui.BackColor := "0xFF00FF"  ; Magenta background
+    SelectionGui.BackColor := "0xFF00FF"  ; #ff00ff magenta
     SelectionGui.MarginX := 0
     SelectionGui.MarginY := 0
     
@@ -150,7 +150,7 @@ UpdateSelection() {
     if (!SelectionGui || !IsObject(SelectionGui)) {
         try {
             SelectionGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +LastFound +ToolWindow -Caption +E0x80000", "Selection")
-            SelectionGui.BackColor := "0xFF00FF"  ; Magenta background
+            SelectionGui.BackColor := "0xFF00FF"  ; #ff00ff magenta
             SelectionGui.MarginX := 0
             SelectionGui.MarginY := 0
         } catch Error as e {
@@ -162,7 +162,6 @@ UpdateSelection() {
     MouseGetPos(&CurrentX, &CurrentY)
     
     ; Debug: Show that origin stays fixed
-    ToolTip("Origin: " StartX "," StartY " | Mouse: " CurrentX "," CurrentY)
     
     ; KEEP A FIXED! Rectangle GUI positioned so origin A always appears at StartX, StartY
     ; A = origin at (StartX, StartY) - NEVER moves visually
@@ -271,14 +270,13 @@ UpdateSelection() {
     ; }
     
     ; Debug: Verify A coordinates never change (commented out to see W-specific debug)
-    ; ToolTip("A FIXED at (" StartX "," StartY ") | B at (" CurrentX "," CurrentY ")")
     
     ; Show translucent magenta rectangle
     if (Width > 4 && Height > 4) {
         if (!IsObject(SelectionGui)) {
             ; Recreate the GUI
             SelectionGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +LastFound +ToolWindow -Caption +E0x80000", "Selection")
-            SelectionGui.BackColor := "0xFF00FF"  ; Magenta background
+            SelectionGui.BackColor := "0xFF00FF"  ; #ff00ff magenta
             SelectionGui.MarginX := 0
             SelectionGui.MarginY := 0
         }
@@ -347,12 +345,8 @@ TakeScreenshot() {
         SaveScreenshotAndOpenInPaint(Left, Top, Width, Height)
         
         ; Show success message
-        ToolTip("Screenshot copied to clipboard and opened in MS Paint!")
-        SetTimer(() => ToolTip(), -2000) ; Hide tooltip after 2 seconds
     } else {
         ; Show message for too small selection
-        ToolTip("Selection too small - screenshot cancelled")
-        SetTimer(() => ToolTip(), -2000) ; Hide tooltip after 2 seconds
     }
 }
 
@@ -392,8 +386,6 @@ SaveScreenshotAndOpenInPaint(X, Y, Width, Height) {
         try {
             DirCreate(ScreenshotDir)
         } catch Error as e {
-            ToolTip("Failed to create directory: " e.Message)
-            SetTimer(() => ToolTip(), -3000)
             Run("mspaint.exe")
             return
         }
@@ -435,7 +427,6 @@ CleanupScreenshot() {
     ScreenshotActive := false
     
     ; Clear any tooltips
-    ToolTip()
     
     ; Remove hotkeys
     try {
