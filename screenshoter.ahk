@@ -10,11 +10,7 @@ global StartX := 0, StartY := 0, EndX := 0, EndY := 0
 global OverlayGui := 0
 global SelectionGui := 0
 global ReferenceGui := 0
-global DebugGui := 0
 global DPIScaleX := 1.0, DPIScaleY := 1.0, DPIChecked := false
-
-; Debug logging function (disabled for performance)
-; Debug logging removed for clean performance
 
 ; Ctrl+9 hotkey to start drag-area screenshot
 ^9::StartDragScreenshot()
@@ -77,19 +73,6 @@ StartDragScreenshot() {
     ; Make it circular by setting a circular region
     DllCall("SetWindowRgn", "Ptr", ReferenceGui.Hwnd, "Ptr", DllCall("CreateEllipticRgn", "Int", 0, "Int", 0, "Int", 8, "Int", 8, "Ptr"), "Int", 1)
     
-    ; Debug window disabled for performance
-    ; MonitorGet(1, &MonLeft, &MonTop, &MonRight, &MonBottom)
-    ; global DebugGui := Gui("+AlwaysOnTop -MaximizeBox -MinimizeBox +LastFound +ToolWindow", "Debug")
-    ; DebugGui.BackColor := "White"
-    ; DebugGui.MarginX := 5
-    ; DebugGui.MarginY := 5
-    
-    ; global DebugText := DebugGui.Add("Text", "w350 h200 Left", "Debug Info")
-    ; DebugText.SetFont("s9", "Consolas")
-    
-    ; Position debug window in upper area (moved much further left to stay on screen)
-    ; DebugGui.Show("x" (MonRight - 700) " y" (MonTop + 10) " w370 h220 NoActivate")
-    
     ; Start tracking mouse movement immediately
     SetTimer(UpdateSelection, 10)
     
@@ -144,8 +127,6 @@ UpdateSelection() {
         return
     }
     
-    ; Debug tooltips removed for clean experience
-    
     ; Check if SelectionGui is valid, if not recreate it
     if (!SelectionGui || !IsObject(SelectionGui)) {
         try {
@@ -160,8 +141,6 @@ UpdateSelection() {
     
     ; Get current mouse position (this is the far corner of the box)
     MouseGetPos(&CurrentX, &CurrentY)
-    
-    ; Debug: Show that origin stays fixed
     
     ; KEEP A FIXED! Rectangle GUI positioned so origin A always appears at StartX, StartY
     ; A = origin at (StartX, StartY) - NEVER moves visually
@@ -204,72 +183,6 @@ UpdateSelection() {
         GuiTop := CurrentY
         ; Width and Height are already calculated as distances
     }
-    
-    ; Log debug info for current quadrant
-    ; Calculate box corner coordinates
-    ; h = top-left, i = top-right, j = bottom-left, k = bottom-right
-    BoxH_X := GuiLeft, BoxH_Y := GuiTop
-    BoxI_X := GuiLeft + Width, BoxI_Y := GuiTop
-    BoxJ_X := GuiLeft, BoxJ_Y := GuiTop + Height
-    BoxK_X := GuiLeft + Width, BoxK_Y := GuiTop + Height
-    
-    
-    ; Calculate expected corner position based on quadrant
-    if (Quadrant == "Z") {
-        ExpectedCornerX := GuiLeft, ExpectedCornerY := GuiTop  ; Top-left
-        CornerName := "top-left"
-    } else if (Quadrant == "Y") {
-        ExpectedCornerX := GuiLeft + Width, ExpectedCornerY := GuiTop  ; Top-right
-        CornerName := "top-right"
-    } else if (Quadrant == "X") {
-        ExpectedCornerX := GuiLeft, ExpectedCornerY := GuiTop + Height  ; Bottom-left
-        CornerName := "bottom-left"
-    } else {  ; Quadrant W
-        ExpectedCornerX := GuiLeft + Width, ExpectedCornerY := GuiTop + Height  ; Bottom-right
-        CornerName := "bottom-right"
-    }
-    
-    
-    ; Check if math is correct AND if red dot would be at corner (not inside)
-    MathCorrect := (ExpectedCornerX == StartX && ExpectedCornerY == StartY)
-    
-    ; Additional check: Is red dot inside the rectangle bounds?
-    RedDotInsideRect := (StartX > GuiLeft && StartX < GuiLeft + Width && StartY > GuiTop && StartY < GuiTop + Height)
-    
-    if (MathCorrect && !RedDotInsideRect) {
-        MathStatus := "YES - At corner"
-    } else if (MathCorrect && RedDotInsideRect) {
-        MathStatus := "NO - Math says corner but red dot is INSIDE rectangle"
-    } else if (!MathCorrect && RedDotInsideRect) {
-        MathStatus := "NO - Math wrong AND red dot is inside"
-    } else {
-        MathStatus := "NO - Math wrong, red dot outside"
-    }
-    
-    
-    ; Debug window updates disabled for performance
-    ; if (IsObject(DebugText)) {
-    ;     try {
-    ;         DebugInfo := "QUADRANT: " Quadrant "`n`n"
-    ;         DebugInfo .= "Red dot (A) at: " StartX "," StartY "`n"
-    ;         DebugInfo .= "Mouse at: " CurrentX "," CurrentY "`n`n"
-    ;         DebugInfo .= "GUI position: " GuiLeft "," GuiTop "`n"
-    ;         DebugInfo .= "GUI size: " Width " x " Height "`n`n"
-    ;         DebugInfo .= "Box corners:`n"
-    ;         DebugInfo .= "h(" BoxH_X "," BoxH_Y ")---i(" BoxI_X "," BoxI_Y ")`n"
-    ;         DebugInfo .= "|                    |`n"
-    ;         DebugInfo .= "j(" BoxJ_X "," BoxJ_Y ")---k(" BoxK_X "," BoxK_Y ")`n`n"
-    ;         DebugInfo .= "A should be " CornerName " corner`n"
-    ;         DebugInfo .= "Expected at: " ExpectedCornerX "," ExpectedCornerY "`n`n"
-    ;         DebugInfo .= "Status: " MathStatus "`n"
-    ;         DebugInfo .= "Red dot inside rect: " (RedDotInsideRect ? "YES (BAD)" : "NO (GOOD)")
-    ;         DebugText.Text := DebugInfo
-    ;     } catch {
-    ;         ; DebugText control was destroyed, skip update
-    ;     }
-    ; }
-    
-    ; Debug: Verify A coordinates never change (commented out to see W-specific debug)
     
     ; Show translucent magenta rectangle
     if (Width > 4 && Height > 4) {
@@ -421,7 +334,7 @@ CancelScreenshot(*) {
 }
 
 CleanupScreenshot() {
-    global ScreenshotActive, OverlayGui, SelectionGui, ReferenceGui, DebugGui
+    global ScreenshotActive, OverlayGui, SelectionGui, ReferenceGui
     
     
     ScreenshotActive := false
@@ -456,16 +369,6 @@ CleanupScreenshot() {
         }
         ReferenceGui := 0
     }
-    
-    if (DebugGui) {
-        try {
-            DebugGui.Destroy()
-        } catch {
-        }
-        DebugGui := 0
-    }
-    
-    ; Diagonal dots cleanup removed (no longer used)
     
     if (OverlayGui) {
         try {

@@ -61,34 +61,6 @@ global ControlToHWND := Map()
 global OriginalActiveWindow := 0  ; Store the window that was active before Alt+Tab
 
 global WindowToClose := 0  ; Store window handle for asynchronous closing
-global DebugLoggingEnabled := false  ; Set to true to enable debug logging
-
-
-;--------------------------------------------------------
-; Debug logging
-;--------------------------------------------------------
-
-DebugLog(message) {
-    if (!DebugLoggingEnabled) {
-        return
-    }
-    try {
-        timestamp := FormatTime(A_Now, "yyyy-MM-dd HH:mm:ss.fff")
-        FileAppend(timestamp " | " message "`n", "debug.log")
-    } catch {
-        ; Ignore logging errors
-    }
-}
-
-InitDebugLog() {
-        try {
-        ; Clear previous log
-        FileDelete("debug.log")
-        DebugLog("=== SCRIPT STARTED ===")
-        } catch {
-        ; Ignore errors
-    }
-}
 
 ;--------------------------------------------------------
 ; Utility functions
@@ -106,22 +78,19 @@ DoAsyncWindowClose() {
     global WindowToClose, WindowSwitcher
     if WindowToClose {
         try {
-            ; Debug: Check if we're accidentally closing the switcher itself
+            ; Check if we're accidentally closing the switcher itself
             if WindowSwitcher && IsObject(WindowSwitcher) {
                 SwitcherHWND := WindowSwitcher.HWND
                 if WindowToClose == SwitcherHWND {
-                    DebugLog("ERROR: Trying to close switcher window itself!")
                     WindowToClose := 0
                     SetTimer(DoAsyncWindowClose, 0)
                     return
                 }
             }
             
-            DebugLog("DoAsyncWindowClose: Closing window " WindowToClose)
             WinClose("ahk_id " WindowToClose)
         } catch {
             ; Window might already be closed or invalid
-            DebugLog("DoAsyncWindowClose: Error closing window")
         }
         WindowToClose := 0
     }
@@ -130,12 +99,11 @@ DoAsyncWindowClose() {
 }
 
 EscapeHandler(*) {
-    DebugLog("GUI Escape Event: Closing switcher")
     CloseWindowSwitcher()
 }
 
 CloseHandler(*) {
-    DebugLog("GUI Close Event Triggered!")
+    ; GUI Close Event
 }
 
 
@@ -231,18 +199,12 @@ CollectAndSortWindows() {
             ; Skip specific Zoom utility windows that clutter Alt+Tab
             WindowClass := WinGetClass("ahk_id " WindowID)
             
-            ; Debug logging for Zoom windows
-            if (ProcessName == "Zoom.exe" || InStr(WindowTitle, "VideoFrame") || InStr(WindowClass, "Video")) {
-                DebugLog("Zoom Window Found - Title: '" WindowTitle "', Class: '" WindowClass "', Process: " ProcessName)
-            }
-            
             if (WindowClass == "ZBToolbarParentWnd" || WindowClass == "ZPToolBarParentWndClass" ||
                 WindowClass == "video_preview_fit_panel" || 
                 WindowClass == "VideoFrameWnd" || WindowClass == "VideoFrameWndClass" ||
                 WindowClass == "ZPFloatVideoWndClass" ||
                 WindowTitle == "VideoFrameWnd" || WindowTitle == "ZPToolBarParentWnd" ||
                 InStr(WindowClass, "VideoFrame")) {
-                DebugLog("Suppressing Zoom utility window - Class: '" WindowClass "', Title: '" WindowTitle "'")
                 continue
             }
             
@@ -669,7 +631,6 @@ OnIconClick(TargetHWND) {
 CloseWindowSwitcher(*) {
     global WindowSwitcher, IsWindowSwitcherActive, ControlToHWND
     
-    DebugLog("CloseWindowSwitcher: Starting cleanup")
     IsWindowSwitcherActive := false
     
     if !WindowSwitcher {
@@ -806,7 +767,6 @@ HandleTabSwitching() {
         UpdateFocusHighlight()
         
         ; Just cycle through windows - no timer needed
-        DebugLog("HandleTabSwitching: Cycling through windows")
         return
     }
     
@@ -965,14 +925,10 @@ HandleReverseTabSwitching() {
 #Escape:: {
     global WindowSwitcher, OriginalActiveWindow
     
-    DebugLog("=== ALT+ESCAPE HOTKEY TRIGGERED! ===")
-    DebugLog("Alt+Escape: WindowSwitcher exists = " (WindowSwitcher ? "true" : "false"))
-    
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
         
         ; Close the switcher first
-        DebugLog("Alt+Escape: Closing switcher normally")
         CloseWindowSwitcher()
         
         ; Return to the original window that was active before Alt+Tab
@@ -999,28 +955,21 @@ HandleReverseTabSwitching() {
     
     ; Only work if the switcher is currently active
     if WindowSwitcher && IsObject(WindowSwitcher) {
-        DebugLog("Alt+Q: Starting window close and proper re-layout")
-        
         ; Get the currently focused control and close its window
         try {
             FocusedControl := WindowSwitcher.FocusedCtrl
-            DebugLog("Alt+Q: FocusedControl = " (FocusedControl ? "Found" : "None"))
             
             if FocusedControl {
                 TargetHWND := GetHWNDFromControl(FocusedControl)
-                DebugLog("Alt+Q: TargetHWND = " TargetHWND)
                 
-                ; Debug: Check if we're about to close the switcher itself
+                ; Check if we're about to close the switcher itself
                 SwitcherHWND := WindowSwitcher.HWND
-                DebugLog("Alt+Q: SwitcherHWND = " SwitcherHWND)
                 
                 if (TargetHWND == SwitcherHWND) {
-                    DebugLog("Alt+Q: ERROR! TargetHWND matches SwitcherHWND - would close switcher!")
                     return
                 }
                 
                 if (TargetHWND) {
-                    DebugLog("Alt+Q: Closing window " TargetHWND)
                     
                     ; Find the index of the window being closed BEFORE removing it
                     FocusIndex := 1
@@ -1082,10 +1031,9 @@ HandleReverseTabSwitching() {
                 }
             }
         } catch {
-            DebugLog("Alt+Q: Error during window close - " A_LastError)
+            ; Error during window close
         }
         
-        DebugLog("Alt+Q: Complete re-layout handler completed!")
         return
     }
     
@@ -1181,9 +1129,6 @@ CapsLock::Ctrl
 
 ; Ensure Caps Lock state is off at startup (so it acts as modifier, not toggle)
 SetCapsLockState("Off")
-
-; Initialize debug logging
-InitDebugLog()
 
 ;--------------------------------------------------------
 ; Status Display
