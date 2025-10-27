@@ -89,9 +89,9 @@ Window ALT+Tab Switcher Interface:
 
 ### Features
 - **Fixed Anchor Point** - CTL+9 to set anchor then drag to define area
-- **Dual Output** - Copies to clipboard, saves to file, and opens in MS Pain
+- **Output** - Copies to clipboard, saves to file, and opens in MS Paint
 - **DPI Aware** - Handles high-DPI displays correctly
-- **Organized Storage** - Saves to `C:\temp\screenshots\` with timestamps
+- **Storage** - Saves to `C:\temp\screenshots\` with timestamps
 - **Escape** - Cancel screenshot mode
 
 **Permission errors**
