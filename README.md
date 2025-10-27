@@ -41,10 +41,10 @@ You can compile scripts to standalone executables using **Ahk2Exe.exe**.
 #### Compilation Commands
 ```bash
 # Compile Window Switcher
-Ahk2Exe.exe /in single-switcher.ahk /out window-switcher.exe /base "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe"
+Ahk2Exe.exe /in switcher.ahk /out window-switcher.exe /base "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe"
 
 # Compile Screenshot Tool
-Ahk2Exe.exe /in screenshoter.ahk /out screenshoter.exe /base "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe"
+Ahk2Exe.exe /in screenshooter.ahk /out screenshooter.exe /base "C:\Program Files\AutoHotkey\v2\AutoHotkey64.exe"
 ```
 
 ## 🪟 Window Switcher
